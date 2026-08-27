@@ -45,6 +45,8 @@ extern cvar_t sv_allowbunnyhopping;
 
 extern cvar_t sv_busters;
 
+extern cvar_t sv_crowbarhunt;
+
 // Engine Cvars
 inline cvar_t* g_psv_gravity;
 inline cvar_t* g_psv_aim;

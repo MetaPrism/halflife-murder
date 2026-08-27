@@ -29,7 +29,7 @@ void CHalfLifeCrowbarHunt::Think()
 	{
 	case CHRoundState::WaitingForPlayers:
 		// TODO: pick your own player-count threshold, ideally a cvar
-		if (UTIL_PlayersInGame() >= 2)
+		if (CountConnectedPlayers() >= 2)
 			StartPreRound();
 		break;
 
@@ -133,7 +133,7 @@ void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
 	if (!pPlayer)
 		return;
 
-	pPlayer->RemoveAllItems(FALSE); // strip default HEV/suit weapons first
+	pPlayer->RemoveAllItems(false); // strip default HEV/suit weapons first
 
 	switch (role)
 	{
@@ -180,6 +180,23 @@ CHRole CHalfLifeCrowbarHunt::GetPlayerRole(CBasePlayer* pPlayer) const
 	return m_playerRoles[idx];
 }
 
+int CHalfLifeCrowbarHunt::CountConnectedPlayers() const
+{
+	int count = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBaseEntity* pEnt = UTIL_PlayerByIndex(i);
+
+		if (!pEnt)
+			continue;
+
+		count++;
+	}
+
+	return count;
+}
+
 int CHalfLifeCrowbarHunt::CountAlivePlayersWithRole(CHRole role) const
 {
 	int count = 0;
@@ -220,10 +237,10 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 	if (m_roundState == CHRoundState::InProgress)
 		GiveRoleLoadout(pPlayer, role);
 	else
-		pPlayer->RemoveAllItems(FALSE); // no weapons while waiting/pre-round
+		pPlayer->RemoveAllItems(false); // no weapons while waiting/pre-round
 }
 
-BOOL CHalfLifeCrowbarHunt::FPlayerCanRespawn(CBasePlayer* pPlayer)
+bool CHalfLifeCrowbarHunt::FPlayerCanRespawn(CBasePlayer* pPlayer)
 {
 	// No mid-round respawning - once you're dead, you spectate until the
 	// round ends. Only allow respawns between rounds.

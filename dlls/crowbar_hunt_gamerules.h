@@ -16,7 +16,7 @@ CGameRules interface, which "Half-Life Updated" may have tweaked slightly.
 */
 #pragma once
 
-#include "multiplay_gamerules.h" // CHalfLifeMultiplay - reuse its respawn/HUD plumbing
+#include "gamerules.h" // CHalfLifeMultiplay - reuse its respawn/HUD plumbing
 
 // Role a player currently holds for the round
 enum class CHRole
@@ -45,12 +45,12 @@ public:
 	// --- CGameRules overrides ---
 	void        Think() override;
 	void        PlayerSpawn(CBasePlayer* pPlayer) override;
-	BOOL        FPlayerCanRespawn(CBasePlayer* pPlayer) override;
+	bool        FPlayerCanRespawn(CBasePlayer* pPlayer) override;
 	void        PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor) override;
 	const char* GetGameDescription() override { return "Crowbar Hunt"; }
-	BOOL        IsMultiplayer() override { return TRUE; }
-	BOOL        IsDeathmatch() override { return TRUE; }
-	BOOL        IsCoOp() override { return FALSE; }
+	bool        IsMultiplayer() override { return true; }
+	bool        IsDeathmatch() override { return true; }
+	bool        IsCoOp() override { return false; }
 
 private:
 	// --- round flow ---
@@ -66,6 +66,7 @@ private:
 	void   SetPlayerRole(CBasePlayer* pPlayer, CHRole role);
 	CHRole GetPlayerRole(CBasePlayer* pPlayer) const;
 
+	int          CountConnectedPlayers() const;
 	int          CountAlivePlayersWithRole(CHRole role) const;
 	CBasePlayer* PickRandomAlivePlayer(CHRole excludeRole = CHRole::Unassigned) const;
 

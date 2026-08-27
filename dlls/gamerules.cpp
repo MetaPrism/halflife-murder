@@ -23,6 +23,7 @@
 #include "weapons.h"
 #include "gamerules.h"
 #include "teamplay_gamerules.h"
+#include "crowbar_hunt_gamerules.h"
 #include "skill.h"
 #include "game.h"
 #include "UserMessages.h"
@@ -382,6 +383,12 @@ CGameRules* InstallGameRules()
 	{
 		g_teamplay = false;
 		return new CMultiplayBusters;
+	}
+	else if (0 != gpGlobals->deathmatch && 1 == sv_crowbarhunt.value)
+	{
+		// Crowbar Hunt: one Killer with a crowbar, one secretly armed Hunter, everyone else unarmed.
+		g_teamplay = false;
+		return new CHalfLifeCrowbarHunt;
 	}
 	else if (0 == gpGlobals->deathmatch)
 	{
