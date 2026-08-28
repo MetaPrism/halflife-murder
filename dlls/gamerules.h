@@ -160,6 +160,11 @@ public:
 	// Immediately end a multiplayer game
 	virtual void EndMultiplayerGame() {}
 
+	// Round-based modes that restore the map between rounds need broken brush
+	// entities to stay allocated instead of having their edict freed, so they
+	// can be put back without a level restart. See CBreakable::Die().
+	virtual bool ShouldPreserveBrokenEntities() { return false; }
+
 protected:
 	CBasePlayerItem* FindNextBestWeapon(CBasePlayer* pPlayer, CBasePlayerItem* pCurrentWeapon);
 };

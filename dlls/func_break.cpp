@@ -26,6 +26,7 @@
 #include "saverestore.h"
 #include "func_break.h"
 #include "decals.h"
+#include "gamerules.h"
 #include "explode.h"
 
 // =================== FUNC_Breakable ==============================================
@@ -771,8 +772,21 @@ void CBreakable::Die()
 	// Fire targets on break
 	SUB_UseTargets(NULL, USE_TOGGLE, 0);
 
-	SetThink(&CBreakable::SUB_Remove);
-	pev->nextthink = pev->ltime + 0.1;
+	if (g_pGameRules && g_pGameRules->ShouldPreserveBrokenEntities())
+	{
+		// Keep the edict around (hidden and non-solid) so a round reset can
+		// restore it. Killed() already flagged us for the engine to free at the
+		// end of the frame, so that has to be undone as well as SUB_Remove.
+		ClearBits(pev->flags, FL_KILLME);
+		pev->effects |= EF_NODRAW;
+		SetThink(NULL);
+		pev->nextthink = 0;
+	}
+	else
+	{
+		SetThink(&CBreakable::SUB_Remove);
+		pev->nextthink = pev->ltime + 0.1;
+	}
 	if (!FStringNull(m_iszSpawnObject))
 		CBaseEntity::Create((char*)STRING(m_iszSpawnObject), VecBModelOrigin(pev), pev->angles, edict());
 

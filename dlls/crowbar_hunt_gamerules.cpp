@@ -3,7 +3,60 @@
 #include "cbase.h"
 #include "player.h"
 #include "weapons.h"
+#include "client.h"
 #include "crowbar_hunt_gamerules.h"
+
+// Minimum number of connected players before a round will start.
+// TODO: expose as a cvar once there's a reason to tune it per server.
+constexpr int CH_MIN_PLAYERS = 2;
+
+namespace
+{
+// Map entities whose spawn state is snapshotted and restored between rounds.
+// Everything here is either a brush that can be destroyed or one that can be
+// left sitting in the wrong position (open door, pushed-in button).
+const char* const g_szResettableClassnames[] = {
+	"func_breakable",
+	"func_pushable",
+	"func_door",
+	"func_door_rotating",
+	"func_water",
+	"func_button",
+	"func_rot_button",
+	"momentary_door",
+	"momentary_rot_button",
+	"func_wall_toggle",
+};
+
+// Leftovers from the previous round: gibs, dropped weapon bags, live ordnance
+// and in-flight projectiles.
+const char* const g_szLitterClassnames[] = {
+	"gib",
+	"weaponbox",
+	"grenade",
+	"monster_satchel",
+	"monster_tripmine",
+	"monster_snark",
+	"rpg_rocket",
+	"crossbow_bolt",
+	"hornet",
+	"spark_shower",
+	"beam",
+	"laser_spot",
+};
+
+template <int SIZE>
+bool ClassnameInList(const char* pszClassname, const char* const (&list)[SIZE])
+{
+	for (int i = 0; i < SIZE; i++)
+	{
+		if (0 == strcmp(pszClassname, list[i]))
+			return true;
+	}
+
+	return false;
+}
+} // namespace
 
 CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 {
@@ -11,8 +64,10 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	m_flStateEnterTime  = gpGlobals->time;
 	m_flPreRoundLength  = 5.0f;
 	m_flRoundEndLength  = 8.0f;
+	m_numSnapshots      = 0;
+	m_bSnapshotTaken    = false;
 
-	for (int i = 0; i < 33; i++)
+	for (int i = 0; i <= MAX_PLAYERS; i++)
 		m_playerRoles[i] = CHRole::Unassigned;
 }
 
@@ -25,11 +80,16 @@ void CHalfLifeCrowbarHunt::Think()
 	// Remove this call if it fights with your own round timer/HUD messages.
 	CHalfLifeMultiplay::Think();
 
+	// First frame after the map finished spawning its entities: record what
+	// everything looked like before anyone can break or open it, and clear the
+	// map's guns out straight away.
+	if (!m_bSnapshotTaken)
+		ResetMapEntities();
+
 	switch (m_roundState)
 	{
 	case CHRoundState::WaitingForPlayers:
-		// TODO: pick your own player-count threshold, ideally a cvar
-		if (CountConnectedPlayers() >= 2)
+		if (CountConnectedPlayers() >= CH_MIN_PLAYERS)
 			StartPreRound();
 		break;
 
@@ -39,12 +99,15 @@ void CHalfLifeCrowbarHunt::Think()
 		break;
 
 	case CHRoundState::InProgress:
+		// Park anyone who died this frame in observer mode, then see whether
+		// that death decided the round.
+		MoveDeadPlayersToObserver();
 		CheckRoundWinConditions();
 		break;
 
 	case CHRoundState::RoundEnd:
 		if (gpGlobals->time - m_flStateEnterTime >= m_flRoundEndLength)
-			RestartMap();
+			ResetForNextRound();
 		break;
 	}
 }
@@ -60,9 +123,15 @@ void CHalfLifeCrowbarHunt::StartPreRound()
 	SetRoundState(CHRoundState::PreRound);
 	AssignRoles();
 
-	// TODO: respawn everyone now so they're standing at spawn points during
-	// the countdown, with no weapons yet (PlayerSpawn() already withholds
-	// weapons outside of InProgress, see below).
+	// Put the world back before anyone is placed in it: broken crates return,
+	// doors close, and the previous round's debris is swept up.
+	ResetMapEntities();
+
+	// Put everyone back on a spawn point for the countdown. PlayerSpawn()
+	// withholds weapons while we're not InProgress, so they stand around
+	// unarmed until StartRound() hands out the loadouts.
+	ForceRespawnAllPlayers();
+
 	UTIL_ClientPrintAll(HUD_PRINTCENTER, "Roles assigned. Get ready...\n");
 }
 
@@ -70,9 +139,21 @@ void CHalfLifeCrowbarHunt::StartRound()
 {
 	SetRoundState(CHRoundState::InProgress);
 
-	// TODO: iterate all connected CBasePlayer instances and call
-	// GiveRoleLoadout(pPlayer, GetPlayerRole(pPlayer)) here, so weapons show
-	// up the instant the round goes live rather than at spawn time.
+	// Hand out weapons the instant the round goes live rather than at spawn
+	// time, so nobody is armed during the countdown.
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (!pPlayer || !pPlayer->IsAlive())
+			continue;
+
+		const CHRole role = GetPlayerRole(pPlayer);
+
+		GiveRoleLoadout(pPlayer, role);
+		AnnounceRole(pPlayer, role);
+	}
+
 	UTIL_ClientPrintAll(HUD_PRINTCENTER, "Round started! Survive... or hunt.\n");
 }
 
@@ -96,14 +177,168 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole)
 	UTIL_ClientPrintAll(HUD_PRINTCENTER, msg);
 }
 
-void CHalfLifeCrowbarHunt::RestartMap()
+void CHalfLifeCrowbarHunt::ResetForNextRound()
 {
-	for (int i = 0; i < 33; i++)
+	for (int i = 0; i <= MAX_PLAYERS; i++)
 		m_playerRoles[i] = CHRole::Unassigned;
 
 	SetRoundState(CHRoundState::WaitingForPlayers);
-	// TODO: force-respawn all connected players so PlayerSpawn() re-fires
-	// and they lose their old-round weapons.
+
+	// Only the dead need picking up here - it gets them out of observer mode
+	// so they aren't stuck spectating if the server drops below the player
+	// minimum. StartPreRound() repositions everybody once a round can start.
+	ForceRespawnDeadPlayers();
+}
+
+// ---------------------------------------------------------------------------
+// Map reset
+//
+// A round-based mode wants the map back the way it loaded, but a real level
+// restart would drop every client into a loading screen between rounds. So
+// instead we snapshot the state of the entities that can be left changed and
+// restore that snapshot at the start of each round.
+//
+// Two things make this work: ShouldPreserveBrokenEntities() stops
+// CBreakable::Die() from freeing broken brushes, so their edicts are still
+// around to restore, and m_pfnThink/Touch/Use are saved alongside entvars,
+// since Die() and the door/button move code rewire those as they go.
+//
+// Not covered: decals (blood, bullet holes) are client-side and can only be
+// cleared by a real map change, and plats/trains/rotating brushes are left
+// alone - add their classnames to g_szResettableClassnames if a map needs it.
+// ---------------------------------------------------------------------------
+void CHalfLifeCrowbarHunt::TakeMapSnapshot()
+{
+	m_numSnapshots   = 0;
+	m_bSnapshotTaken = true;
+
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; i++)
+	{
+		edict_t* pEdict = INDEXENT(i);
+
+		if (!pEdict || 0 != pEdict->free || FStringNull(pEdict->v.classname))
+			continue;
+
+		if (!ClassnameInList(STRING(pEdict->v.classname), g_szResettableClassnames))
+			continue;
+
+		CBaseEntity* pEntity = CBaseEntity::Instance(pEdict);
+
+		if (!pEntity)
+			continue;
+
+		if (m_numSnapshots >= CH_MAX_TRACKED_ENTITIES)
+		{
+			ALERT(at_console, "Crowbar Hunt: over %d resettable entities on this map, the rest will not reset between rounds\n", CH_MAX_TRACKED_ENTITIES);
+			break;
+		}
+
+		CHEntitySnapshot& snapshot = m_mapSnapshot[m_numSnapshots++];
+
+		snapshot.hEntity       = pEntity;
+		snapshot.vecOrigin     = pEntity->pev->origin;
+		snapshot.vecAngles     = pEntity->pev->angles;
+		snapshot.flHealth      = pEntity->pev->health;
+		snapshot.flTakeDamage  = pEntity->pev->takedamage;
+		snapshot.flFrame       = pEntity->pev->frame;
+		snapshot.iSolid        = pEntity->pev->solid;
+		snapshot.iMoveType     = pEntity->pev->movetype;
+		snapshot.iEffects      = pEntity->pev->effects;
+		snapshot.iszTargetName = pEntity->pev->targetname;
+		snapshot.pfnThink      = pEntity->m_pfnThink;
+		snapshot.pfnTouch      = pEntity->m_pfnTouch;
+		snapshot.pfnUse        = pEntity->m_pfnUse;
+
+		CBaseToggle* pToggle  = pEntity->MyTogglePointer();
+		snapshot.iToggleState = pToggle ? pToggle->m_toggle_state : -1;
+	}
+}
+
+void CHalfLifeCrowbarHunt::ResetMapEntities()
+{
+	if (!m_bSnapshotTaken)
+		TakeMapSnapshot();
+
+	RemoveRoundLitter();
+
+	for (int i = 0; i < m_numSnapshots; i++)
+	{
+		CHEntitySnapshot& snapshot = m_mapSnapshot[i];
+		CBaseEntity*      pEntity  = snapshot.hEntity;
+
+		if (!pEntity)
+			continue;
+
+		entvars_t* pev = pEntity->pev;
+
+		pEntity->m_pfnThink = snapshot.pfnThink;
+		pEntity->m_pfnTouch = snapshot.pfnTouch;
+		pEntity->m_pfnUse   = snapshot.pfnUse;
+
+		ClearBits(pev->flags, FL_KILLME); // in case something flagged it for the engine to free
+		pev->deadflag   = DEAD_NO;
+		pev->health     = snapshot.flHealth;
+		pev->takedamage = snapshot.flTakeDamage;
+		pev->effects    = snapshot.iEffects; // clears the EF_NODRAW a break left behind
+		pev->frame      = snapshot.flFrame;
+		pev->targetname = snapshot.iszTargetName; // Die() clears this so a breakable cannot retrigger itself
+		pev->solid      = snapshot.iSolid;
+		pev->movetype   = snapshot.iMoveType;
+		pev->velocity   = g_vecZero;
+		pev->avelocity  = g_vecZero;
+		pev->angles     = snapshot.vecAngles;
+
+		// Re-setting the brush model restores mins/maxs/size and relinks the
+		// entity, which is what brings a broken brush back as a solid again.
+		if (!FStringNull(pev->model))
+			SET_MODEL(ENT(pev), STRING(pev->model));
+
+		UTIL_SetOrigin(pev, snapshot.vecOrigin);
+
+		CBaseToggle* pToggle = pEntity->MyTogglePointer();
+
+		if (pToggle && snapshot.iToggleState >= 0)
+		{
+			pToggle->m_toggle_state       = static_cast<TOGGLE_STATE>(snapshot.iToggleState);
+			pToggle->m_flActivateFinished = 0;
+		}
+
+		// Anything caught mid-move is parked here. Only entities that had a
+		// think scheduled at spawn time (a sparking button, say) get one back;
+		// those reschedule themselves from then on. Push movers run their
+		// thinks off ltime, everything else off game time.
+		if (pEntity->m_pfnThink)
+			pev->nextthink = (pev->movetype == MOVETYPE_PUSH ? pev->ltime : gpGlobals->time) + 0.1;
+		else
+			pev->nextthink = 0;
+	}
+}
+
+// Sweep up what the last round left lying around, and keep the map's own guns
+// out of play - a Survivor picking up an MP5 would undo the whole premise.
+void CHalfLifeCrowbarHunt::RemoveRoundLitter()
+{
+	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; i++)
+	{
+		edict_t* pEdict = INDEXENT(i);
+
+		if (!pEdict || 0 != pEdict->free || FStringNull(pEdict->v.classname))
+			continue;
+
+		const char* pszClassname = STRING(pEdict->v.classname);
+
+		// A weapon or ammo entity someone is carrying has its owner set, so
+		// only the ones lying in the world get taken.
+		const bool isLooseWeapon = FNullEnt(pEdict->v.owner) && (0 == strncmp(pszClassname, "weapon_", 7) || 0 == strncmp(pszClassname, "ammo_", 5));
+
+		if (!isLooseWeapon && !ClassnameInList(pszClassname, g_szLitterClassnames))
+			continue;
+
+		CBaseEntity* pEntity = CBaseEntity::Instance(pEdict);
+
+		if (pEntity)
+			UTIL_Remove(pEntity);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -111,8 +346,21 @@ void CHalfLifeCrowbarHunt::RestartMap()
 // ---------------------------------------------------------------------------
 void CHalfLifeCrowbarHunt::AssignRoles()
 {
-	for (int i = 0; i < 33; i++)
+	// Everyone starts Unassigned so that players who connect mid-round stay
+	// Unassigned - CountAlivePlayersWithRole() ignores them, and PlayerSpawn()
+	// drops them into observer mode until the next round.
+	for (int i = 0; i <= MAX_PLAYERS; i++)
+		m_playerRoles[i] = CHRole::Unassigned;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (!pPlayer)
+			continue;
+
 		m_playerRoles[i] = CHRole::Survivor;
+	}
 
 	CBasePlayer* pKiller = PickRandomAlivePlayer();
 	if (pKiller)
@@ -122,10 +370,32 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 	CBasePlayer* pHunter = PickRandomAlivePlayer(CHRole::Killer);
 	if (pHunter)
 		SetPlayerRole(pHunter, CHRole::Hunter);
+}
 
-	// TODO: tell the Hunter privately that they're the Hunter (ClientPrint
-	// to just that one player's edict) instead of broadcasting it - part of
-	// the fun is the Killer not knowing who's armed.
+// Tell one player what they are. Deliberately never broadcast - half the fun
+// is the Killer not knowing who's carrying the revolver.
+void CHalfLifeCrowbarHunt::AnnounceRole(CBasePlayer* pPlayer, CHRole role) const
+{
+	if (!pPlayer)
+		return;
+
+	switch (role)
+	{
+	case CHRole::Killer:
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You are the KILLER.\nHunt them down.\n");
+		break;
+
+	case CHRole::Hunter:
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You are the HUNTER.\nYou have the revolver - find the Killer.\n");
+		break;
+
+	case CHRole::Survivor:
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You are a SURVIVOR.\nStay alive.\n");
+		break;
+
+	default:
+		break;
+	}
 }
 
 void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
@@ -143,8 +413,6 @@ void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
 
 	case CHRole::Hunter:
 		pPlayer->GiveNamedItem("weapon_357");
-		// TODO: verify the ammo name ("357") and max-carry constant against
-		// this repo's weapons.h - names sometimes differ from vanilla HLSDK.
 		pPlayer->GiveAmmo(6, "357", _357_MAX_CARRY);
 		break;
 
@@ -162,7 +430,7 @@ void CHalfLifeCrowbarHunt::SetPlayerRole(CBasePlayer* pPlayer, CHRole role)
 		return;
 
 	int idx = ENTINDEX(pPlayer->edict());
-	if (idx < 0 || idx >= 33)
+	if (idx < 1 || idx > MAX_PLAYERS)
 		return;
 
 	m_playerRoles[idx] = role;
@@ -174,10 +442,19 @@ CHRole CHalfLifeCrowbarHunt::GetPlayerRole(CBasePlayer* pPlayer) const
 		return CHRole::Unassigned;
 
 	int idx = ENTINDEX(pPlayer->edict());
-	if (idx < 0 || idx >= 33)
+	if (idx < 1 || idx > MAX_PLAYERS)
 		return CHRole::Unassigned;
 
 	return m_playerRoles[idx];
+}
+
+// ---------------------------------------------------------------------------
+// Player iteration
+// ---------------------------------------------------------------------------
+CBasePlayer* CHalfLifeCrowbarHunt::GetPlayerByIndex(int index)
+{
+	// UTIL_PlayerByIndex() returns null for slots nobody is connected to.
+	return static_cast<CBasePlayer*>(UTIL_PlayerByIndex(index));
 }
 
 int CHalfLifeCrowbarHunt::CountConnectedPlayers() const
@@ -186,12 +463,8 @@ int CHalfLifeCrowbarHunt::CountConnectedPlayers() const
 
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
-		CBaseEntity* pEnt = UTIL_PlayerByIndex(i);
-
-		if (!pEnt)
-			continue;
-
-		count++;
+		if (GetPlayerByIndex(i))
+			count++;
 	}
 
 	return count;
@@ -200,29 +473,43 @@ int CHalfLifeCrowbarHunt::CountConnectedPlayers() const
 int CHalfLifeCrowbarHunt::CountAlivePlayersWithRole(CHRole role) const
 {
 	int count = 0;
-	// TODO: replace with a real "iterate connected players" loop, e.g.:
-	//
-	//   for (int i = 1; i <= gpGlobals->maxClients; i++)
-	//   {
-	//       CBaseEntity* pEnt = UTIL_PlayerByIndex(i);
-	//       if (!pEnt) continue;
-	//       CBasePlayer* pPlayer = static_cast<CBasePlayer*>(pEnt);
-	//       if (!pPlayer->IsAlive()) continue;
-	//       if (m_playerRoles[i] == role) count++;
-	//   }
-	//
-	// (function names above are illustrative - match them to what this repo
-	// actually exposes in util.h.)
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (!pPlayer || !pPlayer->IsAlive())
+			continue;
+
+		if (m_playerRoles[i] == role)
+			count++;
+	}
+
 	return count;
 }
 
 CBasePlayer* CHalfLifeCrowbarHunt::PickRandomAlivePlayer(CHRole excludeRole) const
 {
-	// TODO: build a small array/vector of alive CBasePlayer* (skipping
-	// anyone who already holds excludeRole), then return
-	// list[RANDOM_LONG(0, list.size() - 1)]. RANDOM_LONG is the engine's
-	// seeded RNG helper, declared in util.h.
-	return nullptr;
+	CBasePlayer* candidates[MAX_PLAYERS];
+	int          numCandidates = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (!pPlayer || !pPlayer->IsAlive())
+			continue;
+
+		if (excludeRole != CHRole::Unassigned && m_playerRoles[i] == excludeRole)
+			continue;
+
+		candidates[numCandidates++] = pPlayer;
+	}
+
+	if (numCandidates == 0)
+		return nullptr;
+
+	return candidates[RANDOM_LONG(0, numCandidates - 1)];
 }
 
 // ---------------------------------------------------------------------------
@@ -234,10 +521,23 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 
 	CHRole role = GetPlayerRole(pPlayer);
 
-	if (m_roundState == CHRoundState::InProgress)
-		GiveRoleLoadout(pPlayer, role);
-	else
+	if (m_roundState != CHRoundState::InProgress)
+	{
 		pPlayer->RemoveAllItems(false); // no weapons while waiting/pre-round
+		return;
+	}
+
+	if (role == CHRole::Unassigned)
+	{
+		// Connected after roles were handed out - sit this round out rather
+		// than joining as a free extra Survivor.
+		pPlayer->RemoveAllItems(false);
+		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Round in progress.\nYou'll join the next one.\n");
+		return;
+	}
+
+	GiveRoleLoadout(pPlayer, role);
 }
 
 bool CHalfLifeCrowbarHunt::FPlayerCanRespawn(CBasePlayer* pPlayer)
@@ -247,6 +547,60 @@ bool CHalfLifeCrowbarHunt::FPlayerCanRespawn(CBasePlayer* pPlayer)
 	return m_roundState != CHRoundState::InProgress;
 }
 
+// Put a player back on a spawn point, clearing observer mode if they were in
+// it. Mirrors what ClientPutInServer() does for a joining player.
+void CHalfLifeCrowbarHunt::ForceRespawn(CBasePlayer* pPlayer) const
+{
+	if (!pPlayer)
+		return;
+
+	pPlayer->Spawn(); // resets m_afPhysicsFlags, so PFLAG_OBSERVER goes with it
+
+	pPlayer->pev->effects |= EF_NOINTERP;
+	pPlayer->pev->iuser1 = 0; // disable any spec modes
+	pPlayer->pev->iuser2 = 0;
+}
+
+void CHalfLifeCrowbarHunt::ForceRespawnAllPlayers() const
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+		ForceRespawn(GetPlayerByIndex(i));
+}
+
+void CHalfLifeCrowbarHunt::ForceRespawnDeadPlayers() const
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (pPlayer && !pPlayer->IsAlive())
+			ForceRespawn(pPlayer);
+	}
+}
+
+// Drop players who have finished their death animation into observer mode, so
+// they can watch the rest of the round instead of staring at their own corpse.
+void CHalfLifeCrowbarHunt::MoveDeadPlayersToObserver() const
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (!pPlayer || pPlayer->IsAlive())
+			continue;
+
+		if ((pPlayer->m_afPhysicsFlags & PFLAG_OBSERVER) != 0)
+			continue; // already spectating
+
+		// PlayerDeathThink() advances deadflag to DEAD_DEAD once the death
+		// animation has played out; going early would cut it off mid-fall.
+		if (pPlayer->pev->deadflag != DEAD_DEAD)
+			continue;
+
+		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Death handling / win conditions
 // ---------------------------------------------------------------------------
@@ -254,11 +608,10 @@ void CHalfLifeCrowbarHunt::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller
 {
 	CHalfLifeMultiplay::PlayerKilled(pVictim, pKiller, pInflictor);
 
-	// TODO: drop the victim into observer/spectator mode immediately
-	// (there's usually a CBasePlayer::StartObserver()-style call, or you
-	// set pev->deadflag / move type by hand) rather than just leaving the
-	// corpse and waiting on FPlayerCanRespawn.
-
+	// The victim's health is already <= 0 here (CBasePlayer::Killed() calls us
+	// before it sets deadflag), so IsAlive() reports false and the counts
+	// below are correct. Handing them to observer mode has to wait until
+	// their death animation finishes - Think() picks that up.
 	if (m_roundState == CHRoundState::InProgress)
 		CheckRoundWinConditions();
 }

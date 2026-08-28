@@ -7,15 +7,13 @@ everyone else. One other player (the "Hunter") is secretly given a revolver
 (weapon_357) to try to stop the Killer. Everyone else (the "Survivors")
 spawns unarmed and has to run/hide/rely on the Hunter.
 
-This is a SKELETON / starting point, not a finished drop-in mode. Search for
-"TODO" for the spots you'll want to flesh out, and double-check every
-function name/signature below against this repo's actual gamerules.h /
-player.h / weapons.h - the names used here follow the traditional HLSDK
-CGameRules interface, which "Half-Life Updated" may have tweaked slightly.
+Selected at map load by InstallGameRules() when "sv_crowbarhunt 1" is set on
+a deathmatch server.
 ===============================================================================
 */
 #pragma once
 
+#include "cdll_dll.h"	// MAX_PLAYERS
 #include "gamerules.h" // CHalfLifeMultiplay - reuse its respawn/HUD plumbing
 
 // Role a player currently holds for the round
@@ -26,6 +24,33 @@ enum class CHRole
 	Killer,
 	Hunter,
 	Survivor,
+};
+
+// Maximum number of map entities whose spawn state we track for round resets.
+// Comfortably above what a Half-Life deathmatch map uses.
+#define CH_MAX_TRACKED_ENTITIES 512
+
+// Spawn-time state of one resettable map entity (breakable, door, button), so
+// a round reset can put it back without reloading the level.
+struct CHEntitySnapshot
+{
+	EHANDLE  hEntity;
+	Vector   vecOrigin;
+	Vector   vecAngles;
+	float    flHealth;
+	float    flTakeDamage;
+	float    flFrame;
+	int      iSolid;
+	int      iMoveType;
+	int      iEffects;
+	int      iToggleState; // TOGGLE_STATE at spawn, -1 if not a CBaseToggle
+	string_t iszTargetName;
+
+	// Die()/Killed() and the door/button move code all rewire these, so they
+	// have to come back too or a reset entity stops responding to touch/use.
+	void (CBaseEntity::*pfnThink)();
+	void (CBaseEntity::*pfnTouch)(CBaseEntity* pOther);
+	void (CBaseEntity::*pfnUse)(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType, float value);
 };
 
 // Which phase the round is currently in
@@ -48,6 +73,11 @@ public:
 	bool        FPlayerCanRespawn(CBasePlayer* pPlayer) override;
 	void        PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor) override;
 	const char* GetGameDescription() override { return "Crowbar Hunt"; }
+
+	// Broken brush entities have to survive until the next round reset can put
+	// them back, so CBreakable::Die() must not free their edict.
+	bool ShouldPreserveBrokenEntities() override { return true; }
+
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
 	bool        IsCoOp() override { return false; }
@@ -58,17 +88,33 @@ private:
 	void StartPreRound();
 	void StartRound();
 	void EndRound(CHRole winningRole);
-	void RestartMap(); // reset roles, go back to WaitingForPlayers/PreRound
+	void ResetForNextRound(); // reset roles, go back to WaitingForPlayers/PreRound
+
+	// --- map reset ---
+	void        TakeMapSnapshot();  // record spawn state of resettable entities (once per map)
+	void        ResetMapEntities(); // put the world back the way the map loaded
+	static void RemoveRoundLitter(); // gibs, corpsebags, live ordnance, map guns
 
 	// --- role management ---
 	void   AssignRoles();
 	void   GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role);
 	void   SetPlayerRole(CBasePlayer* pPlayer, CHRole role);
 	CHRole GetPlayerRole(CBasePlayer* pPlayer) const;
+	void   AnnounceRole(CBasePlayer* pPlayer, CHRole role) const;
+
+	// --- player iteration ---
+	// Returns the connected player in slot "index" (1..maxClients), or null.
+	static CBasePlayer* GetPlayerByIndex(int index);
 
 	int          CountConnectedPlayers() const;
 	int          CountAlivePlayersWithRole(CHRole role) const;
 	CBasePlayer* PickRandomAlivePlayer(CHRole excludeRole = CHRole::Unassigned) const;
+
+	// --- spawn/death plumbing ---
+	void ForceRespawn(CBasePlayer* pPlayer) const;
+	void ForceRespawnAllPlayers() const;
+	void ForceRespawnDeadPlayers() const;
+	void MoveDeadPlayersToObserver() const;
 
 	void CheckRoundWinConditions();
 
@@ -79,6 +125,12 @@ private:
 	float m_flPreRoundLength;
 	float m_flRoundEndLength;
 
-	// role assigned to each possible player slot, indexed by ENTINDEX() (1..32)
-	CHRole m_playerRoles[33];
+	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
+	CHRole m_playerRoles[MAX_PLAYERS + 1];
+
+	// Spawn-time state of every resettable map entity, taken once on the first
+	// frame after the map has finished spawning its entities.
+	CHEntitySnapshot m_mapSnapshot[CH_MAX_TRACKED_ENTITIES];
+	int              m_numSnapshots;
+	bool             m_bSnapshotTaken;
 };
