@@ -398,28 +398,73 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 
 // Tell one player what they are. Deliberately never broadcast - half the fun
 // is the Killer not knowing who's carrying the revolver.
+//
+// Presented like a single-player chapter title: the same CHudMessage renderer
+// env_message drives, with the write-out scan effect low on the screen.
+// UTIL_HudMessage carries the text and its fade parameters inline in a
+// TE_TEXTMESSAGE, so this needs no titles.txt entry and no client.dll change.
 void CHalfLifeCrowbarHunt::AnnounceRole(CBasePlayer* pPlayer, CHRole role) const
 {
 	if (!pPlayer)
 		return;
 
+	const char* pszText = nullptr;
+	byte r = 255, g = 255, b = 255;
+
 	switch (role)
 	{
 	case CHRole::Killer:
-		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You are the KILLER.\nHunt them down.\n");
+		pszText = "YOU ARE THE KILLER\nHunt them down.";
+		r = 200;
+		g = 40;
+		b = 40;
 		break;
 
 	case CHRole::Hunter:
-		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You are the HUNTER.\nYou have the revolver - find the Killer.\n");
+		pszText = "YOU ARE THE HUNTER\nYou have the revolver - find the Killer.";
+		r = 220;
+		g = 170;
+		b = 40;
 		break;
 
 	case CHRole::Survivor:
-		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You are a SURVIVOR.\nStay alive.\n");
+		pszText = "YOU ARE A SURVIVOR\nStay alive.";
+		r = 200;
+		g = 200;
+		b = 200;
 		break;
 
 	default:
-		break;
+		return;
 	}
+
+	hudtextparms_t parms;
+	memset(&parms, 0, sizeof(parms));
+
+	parms.x = -1.0f;  // -1 centres the line horizontally
+	parms.y = 0.7f;   // low on the screen, where chapter titles sit
+	parms.effect = 2; // write-out scan, the chapter-title effect
+
+	parms.r1 = r;
+	parms.g1 = g;
+	parms.b1 = b;
+	parms.a1 = 255;
+
+	// Colour 2 is the highlight on the character currently being written out.
+	parms.r2 = 255;
+	parms.g2 = 255;
+	parms.b2 = 255;
+	parms.a2 = 255;
+
+	parms.fadeinTime = 0.05f; // per character while the effect is 2
+	parms.fadeoutTime = 1.5f;
+	parms.holdTime = 3.5f;
+	parms.fxTime = 0.25f;
+
+	// Its own channel so a later announcement never stomps this one mid-write.
+	parms.channel = 1;
+
+	UTIL_HudMessage(pPlayer, parms, pszText);
 }
 
 // CHalfLifeMultiplay::RefreshSkillData() runs after the skill.cfg cvars have
