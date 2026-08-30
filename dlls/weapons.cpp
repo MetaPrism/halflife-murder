@@ -1168,6 +1168,10 @@ void CWeaponBox::Touch(CBaseEntity* pOther)
 	CBasePlayer* pPlayer = (CBasePlayer*)pOther;
 	int i;
 
+	// a box can now outlive a touch (see below), so only the touches that
+	// actually hand something over should make the pickup noise.
+	bool bGaveSomething = false;
+
 	// dole out ammo
 	for (i = 0; i < MAX_AMMO_SLOTS; i++)
 	{
@@ -1181,6 +1185,7 @@ void CWeaponBox::Touch(CBaseEntity* pOther)
 			// now empty the ammo from the weaponbox since we just gave it to the player
 			m_rgiszAmmo[i] = iStringNull;
 			m_rgAmmo[i] = 0;
+			bGaveSomething = true;
 		}
 	}
 
@@ -1199,17 +1204,38 @@ void CWeaponBox::Touch(CBaseEntity* pOther)
 				//ALERT ( at_console, "trying to give %s\n", STRING( m_rgpPlayerItems[ i ]->pev->classname ) );
 
 				pItem = m_rgpPlayerItems[i];
+
+				// Unlike CBasePlayerItem::DefaultTouch(), this path used to hand
+				// weapons over without asking the gamerules. Modes that restrict
+				// who may carry what need a say here too, so a refused weapon
+				// stays in the box for someone who is allowed to take it.
+				if (!g_pGameRules->CanHavePlayerItem(pPlayer, pItem))
+				{
+					break;
+				}
+
 				m_rgpPlayerItems[i] = m_rgpPlayerItems[i]->m_pNext; // unlink this weapon from the box
 
 				if (pPlayer->AddPlayerItem(pItem))
 				{
 					pItem->AttachToPlayer(pPlayer);
+					bGaveSomething = true;
 				}
 			}
 		}
 	}
 
-	EMIT_SOUND(pOther->edict(), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
+	if (bGaveSomething)
+	{
+		EMIT_SOUND(pOther->edict(), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
+	}
+
+	if (!IsEmpty())
+	{
+		// something in here wasn't ours to take - keep the box around.
+		return;
+	}
+
 	SetTouch(NULL);
 	UTIL_Remove(this);
 }

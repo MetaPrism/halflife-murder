@@ -204,7 +204,7 @@ void CPython::Reload()
 	bUseScope = g_pGameRules->IsMultiplayer();
 #endif
 
-	DefaultReload(6, PYTHON_RELOAD, 2.0, bUseScope ? 1 : 0);
+	DefaultReload(PYTHON_MAX_CLIP, PYTHON_RELOAD, 4.5, bUseScope ? 1 : 0);
 }
 
 

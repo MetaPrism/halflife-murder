@@ -4,11 +4,17 @@
 #include "player.h"
 #include "weapons.h"
 #include "client.h"
+#include "skill.h"
 #include "crowbar_hunt_gamerules.h"
 
 // Minimum number of connected players before a round will start.
 // TODO: expose as a cvar once there's a reason to tune it per server.
 constexpr int CH_MIN_PLAYERS = 2;
+
+// Both role weapons are one-hit kills: the round is decided by positioning and
+// who shoots first, not by trading damage.
+constexpr float CH_CROWBAR_DAMAGE = 200.0f;
+constexpr float CH_357_DAMAGE = 200.0f;
 
 namespace
 {
@@ -69,6 +75,12 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 
 	for (int i = 0; i <= MAX_PLAYERS; i++)
 		m_playerRoles[i] = CHRole::Unassigned;
+
+	// CHalfLifeMultiplay's constructor already called RefreshSkillData(), but it
+	// did so while the object was still a CHalfLifeMultiplay - virtual dispatch
+	// during base construction never reaches a derived override - so our damage
+	// values have to be applied again from here.
+	RefreshSkillData();
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +118,11 @@ void CHalfLifeCrowbarHunt::Think()
 		break;
 
 	case CHRoundState::RoundEnd:
+		// Keep parking the dead in observer mode - the death that ended the
+		// round happens before its animation finishes, so the last victim
+		// still needs picking up. ResetForNextRound() takes them back out.
+		MoveDeadPlayersToObserver();
+
 		if (gpGlobals->time - m_flStateEnterTime >= m_flRoundEndLength)
 			ResetForNextRound();
 		break;
@@ -131,6 +148,10 @@ void CHalfLifeCrowbarHunt::StartPreRound()
 	// withholds weapons while we're not InProgress, so they stand around
 	// unarmed until StartRound() hands out the loadouts.
 	ForceRespawnAllPlayers();
+
+	// After the respawns, not before: CHalfLifeMultiplay::PlayerSpawn() hands a
+	// crowbar and glock to every spawning player, so the wipe has to come last.
+	StripAllPlayers();
 
 	UTIL_ClientPrintAll(HUD_PRINTCENTER, "Roles assigned. Get ready...\n");
 }
@@ -188,6 +209,7 @@ void CHalfLifeCrowbarHunt::ResetForNextRound()
 	// so they aren't stuck spectating if the server drops below the player
 	// minimum. StartPreRound() repositions everybody once a round can start.
 	ForceRespawnDeadPlayers();
+	StripAllPlayers();
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +420,68 @@ void CHalfLifeCrowbarHunt::AnnounceRole(CBasePlayer* pPlayer, CHRole role) const
 	}
 }
 
+// CHalfLifeMultiplay::RefreshSkillData() runs after the skill.cfg cvars have
+// been read and overwrites the deathmatch weapons with its own hardcoded
+// numbers, so setting sk_plr_crowbar / sk_plr_357_bullet has no effect in any
+// multiplayer mode. Our values go on top of that pass, not underneath it.
+void CHalfLifeCrowbarHunt::RefreshSkillData()
+{
+	CHalfLifeMultiplay::RefreshSkillData();
+
+	gSkillData.plrDmgCrowbar = CH_CROWBAR_DAMAGE;
+	gSkillData.plrDmg357 = CH_357_DAMAGE;
+}
+
+// The revolver holds one round (PYTHON_MAX_CLIP), so every shot costs the
+// Hunter a two-second reload - that reload is the mode's real balance lever,
+// not scarcity of ammo. Topping the reserve back up each frame keeps the
+// reload mandatory while making the ammo behind it effectively endless.
+void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
+{
+	CHalfLifeMultiplay::PlayerThink(pPlayer);
+
+	if (!pPlayer || !pPlayer->IsAlive() || m_roundState != CHRoundState::InProgress)
+		return;
+
+	// Only for whoever is actually carrying the revolver - a Survivor who picks
+	// it up off the dead Hunter inherits the endless reserve with it.
+	if (pPlayer->ammo_357 < _357_MAX_CARRY && pPlayer->HasNamedPlayerItem("weapon_357"))
+		pPlayer->ammo_357 = _357_MAX_CARRY;
+}
+
+// A role's weapon is part of its identity, so weapons can't change hands: a
+// Survivor holding the crowbar would read as the Killer, and the Killer with
+// the revolver ends the round on the spot. This covers every pickup route -
+// map pickups, GiveNamedItem() (which touches the item onto the player), and
+// the boxes dropped by dead players.
+bool CHalfLifeCrowbarHunt::RoleCanCarryWeapon(CHRole role, const char* pszWeaponName)
+{
+	if (FStrEq(pszWeaponName, "weapon_crowbar"))
+		return role == CHRole::Killer;
+
+	// The Hunter's revolver is inheritable: if the Hunter dies, a Survivor who
+	// reaches the body can take up the fight. The Killer never can.
+	if (FStrEq(pszWeaponName, "weapon_357"))
+		return role != CHRole::Killer;
+
+	return true;
+}
+
+bool CHalfLifeCrowbarHunt::CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerItem* pItem)
+{
+	// Weapons only exist while a round is live. Outside that every route in is
+	// closed - the crowbar and glock CHalfLifeMultiplay::PlayerSpawn() hands out
+	// on every respawn, leftover weaponboxes, map pickups - so nobody can still
+	// be holding something when StartRound() deals out the real loadouts.
+	if (m_roundState != CHRoundState::InProgress)
+		return false;
+
+	if (pPlayer && pItem && !RoleCanCarryWeapon(GetPlayerRole(pPlayer), STRING(pItem->pev->classname)))
+		return false;
+
+	return CHalfLifeMultiplay::CanHavePlayerItem(pPlayer, pItem);
+}
+
 void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
 {
 	if (!pPlayer)
@@ -413,7 +497,7 @@ void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
 
 	case CHRole::Hunter:
 		pPlayer->GiveNamedItem("weapon_357");
-		pPlayer->GiveAmmo(6, "357", _357_MAX_CARRY);
+		pPlayer->GiveAmmo(_357_MAX_CARRY, "357", _357_MAX_CARRY);
 		break;
 
 	case CHRole::Survivor:
@@ -517,7 +601,17 @@ CBasePlayer* CHalfLifeCrowbarHunt::PickRandomAlivePlayer(CHRole excludeRole) con
 // ---------------------------------------------------------------------------
 void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 {
-	CHalfLifeMultiplay::PlayerSpawn(pPlayer);
+	if (!pPlayer)
+		return;
+
+	// Deliberately not CHalfLifeMultiplay::PlayerSpawn(). That hands every
+	// spawning player a crowbar and a glock, and GiveNamedItem() delivers them
+	// by spawning a real world entity at the player's feet and touching them
+	// with it. When CanHavePlayerItem() refuses - which it does for every
+	// spawn outside a live round - the entity is not removed, it just stays
+	// lying on the spawn point as a free pickup. Loadouts come from
+	// GiveRoleLoadout() instead, so the default equip is never wanted here.
+	pPlayer->SetHasSuit(true);
 
 	CHRole role = GetPlayerRole(pPlayer);
 
@@ -543,8 +637,11 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 bool CHalfLifeCrowbarHunt::FPlayerCanRespawn(CBasePlayer* pPlayer)
 {
 	// No mid-round respawning - once you're dead, you spectate until the
-	// round ends. Only allow respawns between rounds.
-	return m_roundState != CHRoundState::InProgress;
+	// round has been reset. RoundEnd counts as part of the round: the player
+	// whose death ended it would otherwise be able to respawn live during the
+	// result screen. Only WaitingForPlayers/PreRound let a player back in.
+	return m_roundState == CHRoundState::WaitingForPlayers
+		|| m_roundState == CHRoundState::PreRound;
 }
 
 // Put a player back on a spawn point, clearing observer mode if they were in
@@ -559,6 +656,20 @@ void CHalfLifeCrowbarHunt::ForceRespawn(CBasePlayer* pPlayer) const
 	pPlayer->pev->effects |= EF_NOINTERP;
 	pPlayer->pev->iuser1 = 0; // disable any spec modes
 	pPlayer->pev->iuser2 = 0;
+}
+
+// Belt-and-braces wipe. PlayerSpawn() already strips anyone it respawns, but
+// this does not depend on a player having gone through a spawn at all, so it
+// also catches observers and anyone the respawn loop skipped.
+void CHalfLifeCrowbarHunt::StripAllPlayers() const
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (pPlayer)
+			pPlayer->RemoveAllItems(false);
+	}
 }
 
 void CHalfLifeCrowbarHunt::ForceRespawnAllPlayers() const

@@ -106,7 +106,7 @@ public:
 
 //#define CROWBAR_MAX_CLIP		WEAPON_NOCLIP
 #define GLOCK_MAX_CLIP 17
-#define PYTHON_MAX_CLIP 6
+#define PYTHON_MAX_CLIP 1
 #define MP5_MAX_CLIP 50
 #define MP5_DEFAULT_AMMO 25
 #define SHOTGUN_MAX_CLIP 8
@@ -141,7 +141,7 @@ public:
 // The amount of ammo given to a player by an ammo item.
 #define AMMO_URANIUMBOX_GIVE 20
 #define AMMO_GLOCKCLIP_GIVE GLOCK_MAX_CLIP
-#define AMMO_357BOX_GIVE PYTHON_MAX_CLIP
+#define AMMO_357BOX_GIVE 6
 #define AMMO_MP5CLIP_GIVE MP5_MAX_CLIP
 #define AMMO_CHAINBOX_GIVE 200
 #define AMMO_M203BOX_GIVE 2

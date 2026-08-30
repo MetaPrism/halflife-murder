@@ -70,8 +70,17 @@ public:
 	// --- CGameRules overrides ---
 	void        Think() override;
 	void        PlayerSpawn(CBasePlayer* pPlayer) override;
+	void        PlayerThink(CBasePlayer* pPlayer) override;
+
+	// CHalfLifeMultiplay hardcodes deathmatch damage over whatever skill.cfg
+	// says, so this mode has to have the last word on its two weapons.
+	void        RefreshSkillData() override;
 	bool        FPlayerCanRespawn(CBasePlayer* pPlayer) override;
 	void        PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor) override;
+
+	// Weapons belong to roles: the crowbar marks the Killer and the revolver
+	// the Hunter, so neither can be traded across that line by picking one up.
+	bool CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerItem* pItem) override;
 	const char* GetGameDescription() override { return "Crowbar Hunt"; }
 
 	// Broken brush entities have to survive until the next round reset can put
@@ -102,6 +111,9 @@ private:
 	CHRole GetPlayerRole(CBasePlayer* pPlayer) const;
 	void   AnnounceRole(CBasePlayer* pPlayer, CHRole role) const;
 
+	// Is a weapon classname one this role is allowed to carry?
+	static bool RoleCanCarryWeapon(CHRole role, const char* pszWeaponName);
+
 	// --- player iteration ---
 	// Returns the connected player in slot "index" (1..maxClients), or null.
 	static CBasePlayer* GetPlayerByIndex(int index);
@@ -112,6 +124,7 @@ private:
 
 	// --- spawn/death plumbing ---
 	void ForceRespawn(CBasePlayer* pPlayer) const;
+	void StripAllPlayers() const; // take every weapon off every connected player
 	void ForceRespawnAllPlayers() const;
 	void ForceRespawnDeadPlayers() const;
 	void MoveDeadPlayersToObserver() const;
