@@ -40,6 +40,7 @@ const char* const g_szLitterClassnames[] = {
 	"gib",
 	"weaponbox",
 	"grenade",
+	"crowbar_thrown",
 	"monster_satchel",
 	"monster_tripmine",
 	"monster_snark",
@@ -175,7 +176,8 @@ void CHalfLifeCrowbarHunt::StartRound()
 		AnnounceRole(pPlayer, role);
 	}
 
-	UTIL_ClientPrintAll(HUD_PRINTCENTER, "Round started! Survive... or hunt.\n");
+	//i believe this line is overriding the client-side announcement
+	//UTIL_ClientPrintAll(HUD_PRINTCENTER, "Round started! Survive... or hunt.\n");
 }
 
 void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole)
@@ -613,6 +615,14 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 	// GiveRoleLoadout() instead, so the default equip is never wanted here.
 	pPlayer->SetHasSuit(true);
 
+	// StartObserver() hides the health/armour and weapon/ammo HUD panels and
+	// CBasePlayer::Spawn() does not put m_iHideHUD back, so a player coming out
+	// of observer mode would keep the spectator HUD flags for the rest of the
+	// map. The flashlight bit is the only one PlayerPreThink() recomputes every
+	// frame, which is why that icon alone kept working. Clear them here, before
+	// the Unassigned branch below puts the player straight back into observer.
+	pPlayer->m_iHideHUD = 0;
+
 	CHRole role = GetPlayerRole(pPlayer);
 
 	if (m_roundState != CHRoundState::InProgress)
@@ -717,6 +727,14 @@ void CHalfLifeCrowbarHunt::MoveDeadPlayersToObserver() const
 // ---------------------------------------------------------------------------
 void CHalfLifeCrowbarHunt::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor)
 {
+	// A 200-damage hit leaves the corpse at around -100 health, and
+	// CBasePlayer::Killed() gibs anything under -40. We run before that check
+	// (and before deadflag is set), so pulling the overkill back to 0 here
+	// keeps the one-shot kill without the gore. 0 still reads as dead for
+	// IsAlive(), so the counts below are unaffected.
+	if (pVictim && pVictim->pev->health < 0)
+		pVictim->pev->health = 0;
+
 	CHalfLifeMultiplay::PlayerKilled(pVictim, pKiller, pInflictor);
 
 	// The victim's health is already <= 0 here (CBasePlayer::Killed() calls us

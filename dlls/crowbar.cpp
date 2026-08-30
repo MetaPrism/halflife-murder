@@ -21,6 +21,10 @@
 #include "player.h"
 #include "gamerules.h"
 
+#ifndef CLIENT_DLL
+#include "game.h"
+#endif
+
 
 #define CROWBAR_BODYHIT_VOLUME 128
 #define CROWBAR_WALLHIT_VOLUME 512
@@ -127,6 +131,156 @@ void FindHullIntersection(const Vector& vecSrc, TraceResult& tr, const Vector& m
 }
 
 
+#ifndef CLIENT_DLL
+
+// Crowbar Hunt: mouse2 throws the crowbar. The thrown bar hits for the same
+// damage as a swing - a one-shot kill on a player - and then drops to the floor
+// as a pickup only the thrower can collect, so the Killer is empty-handed until
+// they walk back to it. Server-only: the client never predicts the throw.
+constexpr float CROWBAR_THROW_SPEED = 1100.0f;
+constexpr float CROWBAR_THROW_LIFT = 100.0f;
+constexpr float CROWBAR_THROW_GRAVITY = 0.6f;
+constexpr float CROWBAR_THROW_SPIN = -1500.0f;
+
+class CCrowbarProjectile : public CBaseAnimating
+{
+public:
+	void Spawn() override;
+	void Precache() override;
+
+	bool Save(CSave& save) override;
+	bool Restore(CRestore& restore) override;
+	static TYPEDESCRIPTION m_SaveData[];
+
+	void EXPORT FlyTouch(CBaseEntity* pOther);
+	void EXPORT PickupTouch(CBaseEntity* pOther);
+
+	// Launches a thrown crowbar from pOwner. Returns the projectile, or null if
+	// the engine had no edict left for it.
+	static CCrowbarProjectile* Throw(CBasePlayer* pOwner, const Vector& vecOrigin, const Vector& vecVelocity);
+
+private:
+	void Land();
+
+	EHANDLE m_hThrower;
+};
+
+LINK_ENTITY_TO_CLASS(crowbar_thrown, CCrowbarProjectile);
+
+TYPEDESCRIPTION CCrowbarProjectile::m_SaveData[] = {
+	DEFINE_FIELD(CCrowbarProjectile, m_hThrower, FIELD_EHANDLE),
+};
+
+IMPLEMENT_SAVERESTORE(CCrowbarProjectile, CBaseAnimating);
+
+void CCrowbarProjectile::Precache()
+{
+	PRECACHE_MODEL("models/w_crowbar.mdl");
+	PRECACHE_SOUND("weapons/cbar_hit1.wav");
+	PRECACHE_SOUND("weapons/cbar_hitbod1.wav");
+	PRECACHE_SOUND("items/gunpickup2.wav");
+}
+
+void CCrowbarProjectile::Spawn()
+{
+	Precache();
+
+	pev->movetype = MOVETYPE_TOSS;
+	pev->solid = SOLID_BBOX;
+	pev->gravity = CROWBAR_THROW_GRAVITY;
+	pev->friction = 0.8;
+
+	SET_MODEL(ENT(pev), "models/w_crowbar.mdl");
+	UTIL_SetSize(pev, Vector(-4, -4, -4), Vector(4, 4, 4));
+	UTIL_SetOrigin(pev, pev->origin);
+
+	SetTouch(&CCrowbarProjectile::FlyTouch);
+}
+
+CCrowbarProjectile* CCrowbarProjectile::Throw(CBasePlayer* pOwner, const Vector& vecOrigin, const Vector& vecVelocity)
+{
+	// pev->owner is the thrower, so the engine skips collision between the two
+	// while the bar is leaving their hands. Land() clears it again.
+	CCrowbarProjectile* pBar = (CCrowbarProjectile*)CBaseEntity::Create(
+		"crowbar_thrown", vecOrigin, pOwner->pev->v_angle, pOwner->edict());
+
+	if (!pBar)
+		return nullptr;
+
+	pBar->pev->velocity = vecVelocity;
+	pBar->pev->avelocity = Vector(CROWBAR_THROW_SPIN, 0, 0); // end over end
+	pBar->m_hThrower = pOwner;
+
+	return pBar;
+}
+
+void CCrowbarProjectile::FlyTouch(CBaseEntity* pOther)
+{
+	if (!pOther || pOther->edict() == pev->owner)
+		return;
+
+	if (DAMAGE_NO != pOther->pev->takedamage)
+	{
+		CBaseEntity* pThrower = m_hThrower;
+
+		// Attribute the kill to whoever threw it; fall back to the bar itself if
+		// they have already disconnected.
+		pOther->TakeDamage(pev, pThrower ? pThrower->pev : pev, gSkillData.plrDmgCrowbar, DMG_CLUB);
+
+		if (pOther->IsPlayer() || (pOther->Classify() != CLASS_NONE && pOther->Classify() != CLASS_MACHINE))
+			EMIT_SOUND(ENT(pev), CHAN_WEAPON, "weapons/cbar_hitbod1.wav", 1, ATTN_NORM);
+		else
+			EMIT_SOUND(ENT(pev), CHAN_WEAPON, "weapons/cbar_hit1.wav", 1, ATTN_NORM);
+	}
+	else
+	{
+		EMIT_SOUND_DYN(ENT(pev), CHAN_WEAPON, "weapons/cbar_hit1.wav", 1, ATTN_NORM, 0, 98 + RANDOM_LONG(0, 3));
+	}
+
+	Land();
+}
+
+void CCrowbarProjectile::Land()
+{
+	// Same physics setup CBasePlayerItem::FallInit() uses for a dropped weapon:
+	// falls to the floor, then sits there as a trigger waiting to be walked over.
+	pev->owner = nullptr; // the thrower has to be able to touch it now
+	pev->velocity = g_vecZero;
+	pev->avelocity = g_vecZero;
+	pev->angles.x = 0;
+	pev->angles.z = 0;
+	pev->movetype = MOVETYPE_TOSS;
+	pev->solid = SOLID_TRIGGER;
+
+	UTIL_SetSize(pev, Vector(-16, -16, 0), Vector(16, 16, 16));
+	UTIL_SetOrigin(pev, pev->origin);
+
+	SetTouch(&CCrowbarProjectile::PickupTouch);
+}
+
+void CCrowbarProjectile::PickupTouch(CBaseEntity* pOther)
+{
+	// Only the Killer who threw it gets it back - a Survivor who stumbles over
+	// the bar is not allowed to arm themselves with it.
+	if (!pOther || !pOther->IsPlayer() || !pOther->IsAlive())
+		return;
+
+	if (static_cast<CBaseEntity*>(m_hThrower) != pOther)
+		return;
+
+	CBasePlayer* pPlayer = (CBasePlayer*)pOther;
+
+	if (pPlayer->HasNamedPlayerItem("weapon_crowbar"))
+		return;
+
+	pPlayer->GiveNamedItem("weapon_crowbar");
+	EMIT_SOUND(ENT(pPlayer->pev), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
+
+	UTIL_Remove(this);
+}
+
+#endif
+
 void CCrowbar::PrimaryAttack()
 {
 	if (!Swing(true))
@@ -134,6 +288,37 @@ void CCrowbar::PrimaryAttack()
 		SetThink(&CCrowbar::SwingAgain);
 		pev->nextthink = gpGlobals->time + 0.1;
 	}
+}
+
+
+void CCrowbar::SecondaryAttack()
+{
+#ifndef CLIENT_DLL
+	// Throwing is a Crowbar Hunt mechanic only; every other mode keeps the stock
+	// crowbar, which has no secondary fire.
+	if (0 == sv_crowbarhunt.value)
+		return;
+
+	UTIL_MakeVectors(m_pPlayer->pev->v_angle);
+
+	Vector vecSrc = m_pPlayer->GetGunPosition() + gpGlobals->v_forward * 16;
+	Vector vecVelocity = gpGlobals->v_forward * CROWBAR_THROW_SPEED + gpGlobals->v_up * CROWBAR_THROW_LIFT + m_pPlayer->pev->velocity;
+
+	CCrowbarProjectile::Throw(m_pPlayer, vecSrc, vecVelocity);
+
+	m_pPlayer->SetAnimation(PLAYER_ATTACK1);
+	SendWeaponAnim(CROWBAR_ATTACK1MISS);
+	EMIT_SOUND_DYN(ENT(m_pPlayer->pev), CHAN_WEAPON, "weapons/cbar_miss1.wav", 1, ATTN_NORM, 0, 98 + RANDOM_LONG(0, 3));
+
+	// The bar is gone: strip the weapon so the Killer is empty-handed until they
+	// retrieve it. Deferred a tick because RemovePlayerItem() holsters the active
+	// item, which is the call we are inside of right now.
+	m_pPlayer->ClearWeaponBit(m_iId);
+	SetThink(&CCrowbar::DestroyItem);
+	pev->nextthink = gpGlobals->time + 0.1;
+#endif
+
+	m_flNextPrimaryAttack = m_flNextSecondaryAttack = GetNextAttackDelay(0.5);
 }
 
 

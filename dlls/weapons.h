@@ -546,6 +546,7 @@ public:
 	bool GetItemInfo(ItemInfo* p) override;
 
 	void PrimaryAttack() override;
+	void SecondaryAttack() override; // Crowbar Hunt: throw the crowbar
 	bool Swing(bool fFirst);
 	bool Deploy() override;
 	void Holster() override;
