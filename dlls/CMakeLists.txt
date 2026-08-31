@@ -49,6 +49,7 @@ target_sources(hl PRIVATE
 	genericmonster.cpp
 	ggrenade.cpp
 	gman.cpp
+	hands.cpp
 	handgrenade.cpp
 	hassassin.cpp
 	headcrab.cpp

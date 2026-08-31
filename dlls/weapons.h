@@ -73,7 +73,7 @@ public:
 // weapon weight factors (for auto-switching)   (-1 = noswitch)
 #define CROWBAR_WEIGHT 0
 #define GLOCK_WEIGHT 10
-#define PYTHON_WEIGHT 15
+#define PYTHON_WEIGHT 0
 #define MP5_WEIGHT 15
 #define SHOTGUN_WEIGHT 15
 #define CROSSBOW_WEIGHT 10

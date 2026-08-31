@@ -13,8 +13,8 @@ constexpr int CH_MIN_PLAYERS = 2;
 
 // Both role weapons are one-hit kills: the round is decided by positioning and
 // who shoots first, not by trading damage.
-constexpr float CH_CROWBAR_DAMAGE = 200.0f;
-constexpr float CH_357_DAMAGE = 200.0f;
+constexpr float CH_CROWBAR_DAMAGE = 100.0f;
+constexpr float CH_357_DAMAGE = 100.0f;
 
 namespace
 {
@@ -564,6 +564,12 @@ void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
 		return;
 
 	pPlayer->RemoveAllItems(false); // strip default HEV/suit weapons first
+
+	// Everyone carries empty hands, whatever their role. It is worth nothing in
+	// a fight - it is how you put your weapon away, so the Killer can walk
+	// around looking as harmless as the Survivors. Given first so that the real
+	// weapon below, being heavier, is what the player actually spawns holding.
+	pPlayer->GiveNamedItem("weapon_hands");
 
 	switch (role)
 	{

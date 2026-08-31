@@ -281,6 +281,9 @@ void W_Precache()
 	// crowbar
 	UTIL_PrecacheOtherWeapon("weapon_crowbar");
 
+	// Crowbar Hunt: empty hands
+	UTIL_PrecacheOtherWeapon("weapon_hands");
+
 	// glock
 	UTIL_PrecacheOtherWeapon("weapon_9mmhandgun");
 	UTIL_PrecacheOther("ammo_9mmclip");

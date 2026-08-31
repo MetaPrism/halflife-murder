@@ -59,6 +59,10 @@ enum WeaponId
 	WEAPON_SATCHEL,
 	WEAPON_SNARK,
 
+	// Crowbar Hunt: empty hands, carried by everyone as a way to hide what
+	// they're really holding.
+	WEAPON_HANDS,
+
 	WEAPON_SUIT = 31
 };
 
