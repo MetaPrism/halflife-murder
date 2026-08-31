@@ -129,6 +129,9 @@ private:
 	void ForceRespawnDeadPlayers() const;
 	void MoveDeadPlayersToObserver() const;
 
+	// Leave a visible body behind at the point a player was killed.
+	static void LeaveCorpse(CBasePlayer* pPlayer);
+
 	void CheckRoundWinConditions();
 
 	CHRoundState m_roundState;

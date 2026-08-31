@@ -38,6 +38,7 @@ const char* const g_szResettableClassnames[] = {
 // and in-flight projectiles.
 const char* const g_szLitterClassnames[] = {
 	"gib",
+	"ch_corpse",
 	"weaponbox",
 	"grenade",
 	"crowbar_thrown",
@@ -64,6 +65,23 @@ bool ClassnameInList(const char* pszClassname, const char* const (&list)[SIZE])
 	return false;
 }
 } // namespace
+
+// A dead player's body, left lying where they fell until the round resets.
+//
+// Half-Life's own bodyque cannot do this job: it is a ring of four slots that
+// older deaths get recycled out of, and its corpses draw with
+// kRenderFxDeadPlayer, which copies model and animation off the *live* player
+// entity at that index every frame. A dead player here becomes an observer -
+// EF_NODRAW, modelindex 0, no longer transmitted by AddToFullPack() - so there
+// is nothing left for that corpse to copy and it renders as nothing. This one
+// owns its model outright and does not care what the player does afterwards.
+class CCrowbarHuntCorpse : public CBaseEntity
+{
+public:
+	int ObjectCaps() override { return FCAP_DONT_SAVE; }
+};
+
+LINK_ENTITY_TO_CLASS(ch_corpse, CCrowbarHuntCorpse);
 
 CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 {
@@ -350,6 +368,17 @@ void CHalfLifeCrowbarHunt::RemoveRoundLitter()
 			continue;
 
 		const char* pszClassname = STRING(pEdict->v.classname);
+
+		// The engine's four bodyque slots are permanent entities that cannot be
+		// removed, and PlayerDeathThink() has already copied a (currently
+		// invisible) body into one for every death this round. Blank them, or a
+		// stale slot starts drawing again the moment its player respawns.
+		if (0 == strcmp(pszClassname, "bodyque"))
+		{
+			pEdict->v.modelindex = 0;
+			pEdict->v.effects |= EF_NODRAW;
+			continue;
+		}
 
 		// A weapon or ammo entity someone is carrying has its owner set, so
 		// only the ones lying in the world get taken.
@@ -763,8 +792,46 @@ void CHalfLifeCrowbarHunt::MoveDeadPlayersToObserver() const
 		if (pPlayer->pev->deadflag != DEAD_DEAD)
 			continue;
 
+		LeaveCorpse(pPlayer);
 		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
 	}
+}
+
+// Snapshot a player's body into a standalone entity, so it stays visible after
+// StartObserver() makes the player themselves disappear.
+void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer)
+{
+	// A gibbed player has had pev->model cleared - there is no body to leave.
+	if (FStringNull(pPlayer->pev->model))
+		return;
+
+	CBaseEntity* pCorpse = CBaseEntity::Create("ch_corpse", pPlayer->pev->origin, pPlayer->pev->angles);
+
+	if (!pCorpse)
+		return;
+
+	entvars_t* pev = pCorpse->pev;
+
+	SET_MODEL(ENT(pev), STRING(pPlayer->pev->model));
+
+	pev->movetype = MOVETYPE_NONE; // the body has already finished falling
+	pev->solid    = SOLID_NOT;     // never block a corridor or a crowbar swing
+	pev->takedamage = DAMAGE_NO;
+
+	// Keep the player's own model colours and submodels.
+	pev->colormap = pPlayer->pev->colormap;
+	pev->skin     = pPlayer->pev->skin;
+	pev->body     = pPlayer->pev->body;
+
+	// Freeze on the frame the death animation ended on. PlayerDeathThink() has
+	// already run StopAnimation(), so pev->frame is the pose we want.
+	pev->sequence  = pPlayer->pev->sequence;
+	pev->frame     = pPlayer->pev->frame;
+	pev->animtime  = gpGlobals->time;
+	pev->framerate = 0;
+
+	UTIL_SetSize(pev, pPlayer->pev->mins, pPlayer->pev->maxs);
+	UTIL_SetOrigin(pev, pPlayer->pev->origin);
 }
 
 // ---------------------------------------------------------------------------
