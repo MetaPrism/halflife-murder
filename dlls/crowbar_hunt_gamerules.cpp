@@ -64,6 +64,23 @@ bool ClassnameInList(const char* pszClassname, const char* const (&list)[SIZE])
 
 	return false;
 }
+
+// A player's chosen colours live in their userinfo, not on their entity. Read
+// one out and clamp it into the byte the studio renderer's remap expects.
+// StudioDrawPlayer() clamps to 360 instead, so a hue above 255 - the top of the
+// blue/purple end - is as close as an entity colormap can get to it.
+int PlayerRemapColor(CBasePlayer* pPlayer, const char* pszKey)
+{
+	const int color = atoi(g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict()), pszKey));
+
+	if (color < 0)
+		return 0;
+
+	if (color > 255)
+		return 255;
+
+	return color;
+}
 } // namespace
 
 // A dead player's body, left lying where they fell until the round resets.
@@ -824,10 +841,19 @@ void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer)
 	pev->solid    = SOLID_NOT;     // never block a corridor or a crowbar swing
 	pev->takedamage = DAMAGE_NO;
 
-	// Keep the player's own model colours and submodels.
-	pev->colormap = pPlayer->pev->colormap;
-	pev->skin     = pPlayer->pev->skin;
-	pev->body     = pPlayer->pev->body;
+	// The ordinary studio draw path does apply remap colours to any entity, not
+	// just players: StudioDrawModel() unpacks curstate.colormap as low byte =
+	// top colour, high byte = bottom, and hands both to StudioSetRemapColors()
+	// exactly the way the player path does. So a corpse can wear the player's
+	// colours without any client-side work - but only its colours. The model
+	// itself still can't be matched from here: every player is "models/player.mdl"
+	// server-side, and the real per-player model is chosen client-side from the
+	// same userinfo. A player using anything but the default will leave a body
+	// that is the right colour and the wrong shape.
+	pev->colormap = PlayerRemapColor(pPlayer, "topcolor") | (PlayerRemapColor(pPlayer, "bottomcolor") << 8);
+
+	pev->skin = pPlayer->pev->skin;
+	pev->body = pPlayer->pev->body;
 
 	// Freeze on the frame the death animation ended on. PlayerDeathThink() has
 	// already run StopAnimation(), so pev->frame is the pose we want.
