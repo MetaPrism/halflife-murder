@@ -602,8 +602,7 @@ void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
 
 	case CHRole::Survivor:
 	default:
-		// Unarmed on purpose. TODO: maybe give a flashlight-only suit, or a
-		// sprint/stamina mechanic to help them evade the Killer.
+		// Unarmed on purpose.
 		break;
 	}
 }

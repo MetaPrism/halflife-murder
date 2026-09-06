@@ -1282,6 +1282,21 @@ bool CStudioModelRenderer::StudioDrawCorpse(int flags)
 	IEngineStudio.StudioSetHeader(m_pStudioHeader);
 	IEngineStudio.SetRenderModel(m_pRenderModel);
 
+	// On a player model these four are the spine, and StudioProcessGait() drives
+	// them to twist the torso against the legs. Neutral is 127 - the value that
+	// formula produces for zero yaw difference - not zero, which is what a plain
+	// entity's controllers arrive as and which would leave the corpse wrung
+	// round about ninety degrees at the waist. The player path sets them the
+	// same way whenever it isn't running a gait.
+	m_pCurrentEntity->curstate.controller[0] = 127;
+	m_pCurrentEntity->curstate.controller[1] = 127;
+	m_pCurrentEntity->curstate.controller[2] = 127;
+	m_pCurrentEntity->curstate.controller[3] = 127;
+	m_pCurrentEntity->latched.prevcontroller[0] = m_pCurrentEntity->curstate.controller[0];
+	m_pCurrentEntity->latched.prevcontroller[1] = m_pCurrentEntity->curstate.controller[1];
+	m_pCurrentEntity->latched.prevcontroller[2] = m_pCurrentEntity->curstate.controller[2];
+	m_pCurrentEntity->latched.prevcontroller[3] = m_pCurrentEntity->curstate.controller[3];
+
 	StudioSetUpTransform(false);
 
 	if ((flags & STUDIO_RENDER) != 0)
