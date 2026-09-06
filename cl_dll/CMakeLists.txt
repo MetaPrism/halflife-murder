@@ -241,6 +241,7 @@ target_sources(client PRIVATE
 	../engine/shake.h
 	../engine/studio.h
 
+	../game_shared/crowbar_hunt_shared.h
 	../game_shared/filesystem_utils.h
 	../game_shared/vgui_scrollbar2.h
 	../game_shared/vgui_slider2.h

@@ -569,6 +569,9 @@
     <ClInclude Include="..\..\common\common_types.h">
       <Filter>Header Files\common</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\game_shared\crowbar_hunt_shared.h">
+      <Filter>Header Files\game_shared</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\game_shared\filesystem_utils.h">
       <Filter>Header Files\game_shared</Filter>
     </ClInclude>

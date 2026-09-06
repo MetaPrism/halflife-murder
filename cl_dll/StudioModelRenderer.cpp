@@ -21,6 +21,8 @@
 #include "StudioModelRenderer.h"
 #include "GameStudioModelRenderer.h"
 
+#include "crowbar_hunt_shared.h"
+
 extern cvar_t* tfc_newmodels;
 
 extern extra_player_info_t g_PlayerExtraInfo[MAX_PLAYERS_HUD + 1];
@@ -1126,6 +1128,12 @@ bool CStudioModelRenderer::StudioDrawModel(int flags)
 	IEngineStudio.GetViewInfo(m_vRenderOrigin, m_vUp, m_vRight, m_vNormal);
 	IEngineStudio.GetAliasScale(&m_fSoftwareXScale, &m_fSoftwareYScale);
 
+	// Crowbar Hunt: a body left behind by a player who is now an observer. It
+	// is a plain entity, so it can never reach the model and colours the
+	// player draw path picks up - StudioDrawCorpse() goes and gets them.
+	if (m_pCurrentEntity->curstate.renderfx == kRenderFxCHCorpse)
+		return StudioDrawCorpse(flags);
+
 	if (m_pCurrentEntity->curstate.renderfx == kRenderFxDeadPlayer)
 	{
 		entity_state_t deadplayer;
@@ -1216,6 +1224,120 @@ bool CStudioModelRenderer::StudioDrawModel(int flags)
 		m_nTopColor = m_pCurrentEntity->curstate.colormap & 0xFF;
 		m_nBottomColor = (m_pCurrentEntity->curstate.colormap & 0xFF00) >> 8;
 
+
+		IEngineStudio.StudioSetRemapColors(m_nTopColor, m_nBottomColor);
+
+		StudioRenderModel();
+	}
+
+	return true;
+}
+
+/*
+====================
+StudioDrawCorpse
+
+Crowbar Hunt: draw a ch_corpse as the player it came from.
+
+This is StudioDrawModel's ordinary entity path with two substitutions. The
+model comes from the engine's per-slot player table rather than from the
+entity, because server-side every player is models/player.mdl and the real
+choice only exists client-side in userinfo. The remap colours come from the
+entity's own colormap rather than from that table, so the body keeps the
+colours its owner had at the moment they died - in a mode built on not knowing
+who is who, a corpse that restyles itself when its owner edits a cvar would be
+worth reading.
+
+The pose is untouched: sequence, frame and angles are the corpse entity's, and
+StudioSetupBones() takes the plain non-gait path because m_pPlayerInfo is left
+null throughout.
+====================
+*/
+bool CStudioModelRenderer::StudioDrawCorpse(int flags)
+{
+	alight_t lighting;
+	Vector dir;
+
+	const int slot = m_pCurrentEntity->curstate.renderamt - 1;
+
+	// StudioSetupBones() blends in a gait animation whenever this is set. A
+	// corpse has no gait, and the player path only clears it on its way out.
+	m_pPlayerInfo = NULL;
+
+	m_pRenderModel = NULL;
+
+	if (slot >= 0 && slot < gEngfuncs.GetMaxClients())
+	{
+		m_pRenderModel = IEngineStudio.SetupPlayerModel(slot);
+	}
+
+	// The slot is gone or was never valid - the owner disconnected, most
+	// likely. Better a body in the default model than a body that vanishes.
+	if (m_pRenderModel == NULL)
+	{
+		m_pRenderModel = m_pCurrentEntity->model;
+	}
+
+	m_pStudioHeader = (studiohdr_t*)IEngineStudio.Mod_Extradata(m_pRenderModel);
+	IEngineStudio.StudioSetHeader(m_pStudioHeader);
+	IEngineStudio.SetRenderModel(m_pRenderModel);
+
+	StudioSetUpTransform(false);
+
+	if ((flags & STUDIO_RENDER) != 0)
+	{
+		if (0 == IEngineStudio.StudioCheckBBox())
+			return false;
+
+		(*m_pModelsDrawn)++;
+		(*m_pStudioModelCount)++; // render data cache cookie
+
+		if (m_pStudioHeader->numbodyparts == 0)
+			return true;
+	}
+
+	StudioSetupBones();
+	StudioSaveBones();
+
+	if ((flags & STUDIO_EVENTS) != 0)
+	{
+		StudioCalcAttachments();
+		IEngineStudio.StudioClientEvents();
+
+		if (m_pCurrentEntity->index > 0)
+		{
+			cl_entity_t* ent = gEngfuncs.GetEntityByIndex(m_pCurrentEntity->index);
+
+			memcpy(ent->attachment, m_pCurrentEntity->attachment, sizeof(Vector) * 4);
+		}
+	}
+
+	if ((flags & STUDIO_RENDER) != 0)
+	{
+		// Same bodygroup rules the player path uses, so a corpse is built out
+		// of the same submodels the living player was: the high-resolution set
+		// when we substituted a multiplayer model, the helmet when we did not.
+		if (0 != m_pCvarHiModels->value && m_pRenderModel != m_pCurrentEntity->model)
+		{
+			m_pCurrentEntity->curstate.body = 255;
+		}
+
+		if (!(m_pCvarDeveloper->value == 0 && gEngfuncs.GetMaxClients() == 1) && (m_pRenderModel == m_pCurrentEntity->model))
+		{
+			m_pCurrentEntity->curstate.body = 1; // force helmet
+		}
+
+		lighting.plightvec = dir;
+		IEngineStudio.StudioDynamicLight(m_pCurrentEntity, &lighting);
+
+		IEngineStudio.StudioEntityLight(&lighting);
+
+		IEngineStudio.StudioSetupLighting(&lighting);
+
+		// Snapshotted at death by the server: low byte top, high byte bottom,
+		// the same packing the ordinary entity path reads.
+		m_nTopColor = m_pCurrentEntity->curstate.colormap & 0xFF;
+		m_nBottomColor = (m_pCurrentEntity->curstate.colormap & 0xFF00) >> 8;
 
 		IEngineStudio.StudioSetRemapColors(m_nTopColor, m_nBottomColor);
 

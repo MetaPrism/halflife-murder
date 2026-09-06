@@ -208,6 +208,7 @@ target_sources(hl PRIVATE
 	../engine/shake.h
 	../engine/studio.h
 
+	../game_shared/crowbar_hunt_shared.h
 	../game_shared/filesystem_utils.h
 
 	../pm_shared/pm_debug.h

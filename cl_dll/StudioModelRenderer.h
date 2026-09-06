@@ -28,6 +28,10 @@ public:
 	virtual bool StudioDrawModel(int flags);
 	virtual bool StudioDrawPlayer(int flags, struct entity_state_s* pplayer);
 
+	// Crowbar Hunt: draw a ch_corpse wearing the model and colours of the
+	// player it was left by.
+	virtual bool StudioDrawCorpse(int flags);
+
 public:
 	// Local interfaces
 	//

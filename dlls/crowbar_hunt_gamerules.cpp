@@ -6,6 +6,7 @@
 #include "client.h"
 #include "skill.h"
 #include "crowbar_hunt_gamerules.h"
+#include "crowbar_hunt_shared.h"
 
 // Minimum number of connected players before a round will start.
 // TODO: expose as a cvar once there's a reason to tune it per server.
@@ -841,15 +842,19 @@ void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer)
 	pev->solid    = SOLID_NOT;     // never block a corridor or a crowbar swing
 	pev->takedamage = DAMAGE_NO;
 
-	// The ordinary studio draw path does apply remap colours to any entity, not
-	// just players: StudioDrawModel() unpacks curstate.colormap as low byte =
-	// top colour, high byte = bottom, and hands both to StudioSetRemapColors()
-	// exactly the way the player path does. So a corpse can wear the player's
-	// colours without any client-side work - but only its colours. The model
-	// itself still can't be matched from here: every player is "models/player.mdl"
-	// server-side, and the real per-player model is chosen client-side from the
-	// same userinfo. A player using anything but the default will leave a body
-	// that is the right colour and the wrong shape.
+	// Everything that makes this body look like the player it came from is
+	// picked up client-side, in StudioDrawCorpse(): kRenderFxCHCorpse tells the
+	// renderer what this is, and renderamt carries the slot it needs to ask the
+	// engine for that player's model. Neither can be done from here - the model
+	// a player chose exists only in their userinfo, and the server puts every
+	// player in "models/player.mdl" regardless.
+	pev->renderfx = kRenderFxCHCorpse;
+	pev->renderamt = ENTINDEX(pPlayer->edict());
+
+	// Colours, though, we snapshot: packed low byte top, high byte bottom, the
+	// packing both studio draw paths unpack. Reading them here rather than
+	// letting the client read the live ones freezes the body as it was at the
+	// moment of death, so it can't restyle itself later and give its owner away.
 	pev->colormap = PlayerRemapColor(pPlayer, "topcolor") | (PlayerRemapColor(pPlayer, "bottomcolor") << 8);
 
 	pev->skin = pPlayer->pev->skin;
