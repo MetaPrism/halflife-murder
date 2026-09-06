@@ -101,6 +101,7 @@ private:
 	void StartRound();
 	void EndRound(CHRole winningRole);
 	void AnnounceWaitingForPlayers() const;
+	void AbortRound();        // too few players left - drop the round on the spot
 	void ResetForNextRound(); // reset roles, go back to WaitingForPlayers/PreRound
 
 	// --- map reset ---

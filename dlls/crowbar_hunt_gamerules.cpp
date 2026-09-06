@@ -138,6 +138,16 @@ void CHalfLifeCrowbarHunt::Think()
 	if (!m_bSnapshotTaken)
 		ResetMapEntities();
 
+	// A round needs bodies in it. If players drop out mid-round and take us
+	// below the minimum, abort straight back to WaitingForPlayers instead of
+	// letting the state machine play out a round nobody can win - otherwise a
+	// lone player keeps cycling through PreRound/RoundEnd on their own.
+	if (m_roundState != CHRoundState::WaitingForPlayers && CountConnectedPlayers() < CH_MIN_PLAYERS)
+	{
+		AbortRound();
+		return;
+	}
+
 	switch (m_roundState)
 	{
 	case CHRoundState::WaitingForPlayers:
@@ -256,8 +266,7 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole)
 void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
 {
 	char szText[128];
-	snprintf(szText, sizeof(szText), "WAITING FOR PLAYERS...
-%d of %d connected",
+	snprintf(szText, sizeof(szText), "WAITING FOR PLAYERS...\n%d of %d connected",
 		CountConnectedPlayers(), CH_MIN_PLAYERS);
 
 	hudtextparms_t parms;
@@ -285,6 +294,15 @@ void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
 	parms.channel = 2;
 
 	UTIL_HudMessageAll(parms, szText);
+}
+
+// Called from Think() the moment the server drops below CH_MIN_PLAYERS while a
+// round is running. Skips the RoundEnd hold entirely - there is no result to
+// show - and hands straight back to WaitingForPlayers, which announces itself.
+void CHalfLifeCrowbarHunt::AbortRound()
+{
+	UTIL_ClientPrintAll(HUD_PRINTCENTER, "Not enough players. Round aborted.\n");
+	ResetForNextRound();
 }
 
 void CHalfLifeCrowbarHunt::ResetForNextRound()
