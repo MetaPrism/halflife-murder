@@ -96,6 +96,7 @@ kbutton_t in_moveleft;
 kbutton_t in_moveright;
 kbutton_t in_strafe;
 kbutton_t in_speed;
+kbutton_t in_sprint; // Crowbar Hunt sprint key; the server decides if the role may use it
 kbutton_t in_use;
 kbutton_t in_jump;
 kbutton_t in_attack;
@@ -441,6 +442,8 @@ void IN_MoverightUp()
 }
 void IN_SpeedDown() { KeyDown(&in_speed); }
 void IN_SpeedUp() { KeyUp(&in_speed); }
+void IN_SprintDown() { KeyDown(&in_sprint); }
+void IN_SprintUp() { KeyUp(&in_sprint); }
 void IN_StrafeDown() { KeyDown(&in_strafe); }
 void IN_StrafeUp() { KeyUp(&in_strafe); }
 
@@ -855,6 +858,14 @@ int CL_ButtonBits(bool bResetState)
 		bits |= IN_SCORE;
 	}
 
+	// Crowbar Hunt sprint. IN_RUN is declared in in_buttons.h but unused by the
+	// engine and by stock Half-Life, so the bit is free to carry the key state
+	// to the server, which decides whether this player's role may sprint on it.
+	if ((in_sprint.state & 3) != 0)
+	{
+		bits |= IN_RUN;
+	}
+
 	// Dead or in intermission? Shore scoreboard, too
 	if (CL_IsDead() || gHUD.m_iIntermission)
 	{
@@ -877,6 +888,7 @@ int CL_ButtonBits(bool bResetState)
 		in_reload.state &= ~2;
 		in_alt1.state &= ~2;
 		in_score.state &= ~2;
+		in_sprint.state &= ~2;
 	}
 
 	return bits;
@@ -939,6 +951,8 @@ void InitInput()
 	gEngfuncs.pfnAddCommand("-moveright", IN_MoverightUp);
 	gEngfuncs.pfnAddCommand("+speed", IN_SpeedDown);
 	gEngfuncs.pfnAddCommand("-speed", IN_SpeedUp);
+	gEngfuncs.pfnAddCommand("+sprint", IN_SprintDown);
+	gEngfuncs.pfnAddCommand("-sprint", IN_SprintUp);
 	gEngfuncs.pfnAddCommand("+attack", IN_AttackDown);
 	gEngfuncs.pfnAddCommand("-attack", IN_AttackUp);
 	gEngfuncs.pfnAddCommand("+attack2", IN_Attack2Down);

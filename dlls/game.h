@@ -51,6 +51,11 @@ extern cvar_t sv_crowbarhunt;
 // them by itself. 0 disables the return.
 extern cvar_t ch_crowbar_return_time;
 
+// Ground speed the Killer gets while holding +sprint, and the speed every
+// other player (and the Killer when not sprinting) is held to.
+extern cvar_t ch_sprint_speed;
+extern cvar_t ch_base_speed;
+
 // Engine Cvars
 inline cvar_t* g_psv_gravity;
 inline cvar_t* g_psv_aim;

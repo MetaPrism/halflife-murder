@@ -5,6 +5,7 @@
 #include "weapons.h"
 #include "client.h"
 #include "skill.h"
+#include "game.h"
 #include "crowbar_hunt_gamerules.h"
 #include "crowbar_hunt_shared.h"
 
@@ -131,6 +132,8 @@ void CHalfLifeCrowbarHunt::Think()
 	// Let the base class keep handling generic multiplayer bookkeeping.
 	// Remove this call if it fights with your own round timer/HUD messages.
 	CHalfLifeMultiplay::Think();
+
+	EnforceSpeedCeiling();
 
 	// First frame after the map finished spawning its entities: record what
 	// everything looked like before anyone can break or open it, and clear the
@@ -603,13 +606,49 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 {
 	CHalfLifeMultiplay::PlayerThink(pPlayer);
 
-	if (!pPlayer || !pPlayer->IsAlive() || m_roundState != CHRoundState::InProgress)
+	if (!pPlayer)
+		return;
+
+	// Runs for everyone in every round state, so a player who stops being the
+	// Killer - or stops sprinting - drops back to base speed the same frame.
+	UpdatePlayerSpeed(pPlayer);
+
+	if (!pPlayer->IsAlive() || m_roundState != CHRoundState::InProgress)
 		return;
 
 	// Only for whoever is actually carrying the revolver - a Survivor who picks
 	// it up off the dead Hunter inherits the endless reserve with it.
 	if (pPlayer->ammo_357 < _357_MAX_CARRY && pPlayer->HasNamedPlayerItem("weapon_357"))
 		pPlayer->ammo_357 = _357_MAX_CARRY;
+}
+
+// The engine's movement code only ever clamps a player down: PM_CheckParamters()
+// does maxspeed = min(pev->maxspeed, sv_maxspeed), and treats a pev->maxspeed of
+// 0 as "no opinion". Raising one player above the rest therefore means lifting
+// sv_maxspeed to the fastest speed the mode allows and holding every player
+// under it by hand - which UpdatePlayerSpeed() does for all of them, every
+// frame, so nobody is ever left running at the raised ceiling by accident.
+void CHalfLifeCrowbarHunt::EnforceSpeedCeiling()
+{
+	const float flCeiling = V_max(ch_base_speed.value, ch_sprint_speed.value);
+
+	if (CVAR_GET_FLOAT("sv_maxspeed") < flCeiling)
+		CVAR_SET_FLOAT("sv_maxspeed", flCeiling);
+}
+
+// Sprinting is the Killer's alone: it is the pressure the mode runs on, and a
+// Survivor who could match the Killer's speed would never need to hide. The
+// client sends the key state in the otherwise unused IN_RUN button bit
+// (cl_dll/input.cpp); this is where it is granted or ignored.
+void CHalfLifeCrowbarHunt::UpdatePlayerSpeed(CBasePlayer* pPlayer) const
+{
+	const bool bMaySprint =
+		m_roundState == CHRoundState::InProgress &&
+		GetPlayerRole(pPlayer) == CHRole::Killer &&
+		pPlayer->IsAlive() &&
+		(pPlayer->pev->button & IN_RUN) != 0;
+
+	pPlayer->pev->maxspeed = bMaySprint ? ch_sprint_speed.value : ch_base_speed.value;
 }
 
 // A role's weapon is part of its identity, so weapons can't change hands: a

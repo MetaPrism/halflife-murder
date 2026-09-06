@@ -104,6 +104,13 @@ private:
 	void AbortRound();        // too few players left - drop the round on the spot
 	void ResetForNextRound(); // reset roles, go back to WaitingForPlayers/PreRound
 
+	// --- movement ---
+	// PM_CheckParamters() only ever clamps a player *down* to pev->maxspeed, so
+	// sv_maxspeed has to sit at the fastest speed anyone in the mode may reach
+	// and every player then gets held below it individually.
+	static void EnforceSpeedCeiling();
+	void        UpdatePlayerSpeed(CBasePlayer* pPlayer) const;
+
 	// --- map reset ---
 	void        TakeMapSnapshot();  // record spawn state of resettable entities (once per map)
 	void        ResetMapEntities(); // put the world back the way the map loaded
