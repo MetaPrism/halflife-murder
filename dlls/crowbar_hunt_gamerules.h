@@ -26,6 +26,9 @@ enum class CHRole
 	Survivor,
 };
 
+// How often, in seconds, WaitingForPlayers reminds the server it's waiting.
+#define CH_WAITING_ANNOUNCE_INTERVAL 30.0f
+
 // Maximum number of map entities whose spawn state we track for round resets.
 // Comfortably above what a Half-Life deathmatch map uses.
 #define CH_MAX_TRACKED_ENTITIES 512
@@ -97,6 +100,7 @@ private:
 	void StartPreRound();
 	void StartRound();
 	void EndRound(CHRole winningRole);
+	void AnnounceWaitingForPlayers() const;
 	void ResetForNextRound(); // reset roles, go back to WaitingForPlayers/PreRound
 
 	// --- map reset ---
@@ -140,6 +144,9 @@ private:
 	// how long each phase lasts, in seconds - tune to taste / expose as cvars
 	float m_flPreRoundLength;
 	float m_flRoundEndLength;
+
+	// gpGlobals->time of the next "Waiting for players..." announcement
+	float m_flNextWaitingAnnounce;
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
 	CHRole m_playerRoles[MAX_PLAYERS + 1];

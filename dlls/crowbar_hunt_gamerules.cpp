@@ -110,6 +110,9 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	m_numSnapshots      = 0;
 	m_bSnapshotTaken    = false;
 
+	// Announce straight away the first time we tick in WaitingForPlayers.
+	m_flNextWaitingAnnounce = 0.0f;
+
 	for (int i = 0; i <= MAX_PLAYERS; i++)
 		m_playerRoles[i] = CHRole::Unassigned;
 
@@ -139,7 +142,14 @@ void CHalfLifeCrowbarHunt::Think()
 	{
 	case CHRoundState::WaitingForPlayers:
 		if (CountConnectedPlayers() >= CH_MIN_PLAYERS)
+		{
 			StartPreRound();
+		}
+		else if (gpGlobals->time >= m_flNextWaitingAnnounce)
+		{
+			AnnounceWaitingForPlayers();
+			m_flNextWaitingAnnounce = gpGlobals->time + CH_WAITING_ANNOUNCE_INTERVAL;
+		}
 		break;
 
 	case CHRoundState::PreRound:
@@ -170,6 +180,11 @@ void CHalfLifeCrowbarHunt::SetRoundState(CHRoundState state)
 {
 	m_roundState       = state;
 	m_flStateEnterTime = gpGlobals->time;
+
+	// Entering the waiting state should say so immediately, not up to a full
+	// interval later.
+	if (state == CHRoundState::WaitingForPlayers)
+		m_flNextWaitingAnnounce = gpGlobals->time;
 }
 
 void CHalfLifeCrowbarHunt::StartPreRound()
@@ -234,6 +249,42 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole)
 		break;
 	}
 	UTIL_ClientPrintAll(HUD_PRINTCENTER, msg);
+}
+
+// Periodic reminder, on its own HUD channel so it never collides with the
+// round-result or role announcements.
+void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
+{
+	char szText[128];
+	snprintf(szText, sizeof(szText), "WAITING FOR PLAYERS...
+%d of %d connected",
+		CountConnectedPlayers(), CH_MIN_PLAYERS);
+
+	hudtextparms_t parms;
+	memset(&parms, 0, sizeof(parms));
+
+	parms.x      = -1.0f; // centred horizontally
+	parms.y      = 0.7f;
+	parms.effect = 2; // write-out scan, matching the role announcements
+
+	parms.r1 = 200;
+	parms.g1 = 200;
+	parms.b1 = 200;
+	parms.a1 = 255;
+
+	parms.r2 = 255;
+	parms.g2 = 255;
+	parms.b2 = 255;
+	parms.a2 = 255;
+
+	parms.fadeinTime  = 0.05f;
+	parms.fadeoutTime = 1.0f;
+	parms.holdTime    = 3.0f;
+	parms.fxTime      = 0.25f;
+
+	parms.channel = 2;
+
+	UTIL_HudMessageAll(parms, szText);
 }
 
 void CHalfLifeCrowbarHunt::ResetForNextRound()
