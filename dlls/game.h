@@ -47,6 +47,10 @@ extern cvar_t sv_busters;
 
 extern cvar_t sv_crowbarhunt;
 
+// Seconds a thrown crowbar stays out of the Killer's hands before it returns to
+// them by itself. 0 disables the return.
+extern cvar_t ch_crowbar_return_time;
+
 // Engine Cvars
 inline cvar_t* g_psv_gravity;
 inline cvar_t* g_psv_aim;

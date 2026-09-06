@@ -154,6 +154,7 @@ public:
 
 	void EXPORT FlyTouch(CBaseEntity* pOther);
 	void EXPORT PickupTouch(CBaseEntity* pOther);
+	void EXPORT ReturnThink();
 
 	// Launches a thrown crowbar from pOwner. Returns the projectile, or null if
 	// the engine had no edict left for it.
@@ -161,6 +162,10 @@ public:
 
 private:
 	void Land();
+
+	// Hands the bar back to the thrower and removes it. No-op if they cannot
+	// take it (gone, dead, or already holding a crowbar).
+	bool GiveBackToThrower();
 
 	EHANDLE m_hThrower;
 };
@@ -210,6 +215,15 @@ CCrowbarProjectile* CCrowbarProjectile::Throw(CBasePlayer* pOwner, const Vector&
 	pBar->pev->velocity = vecVelocity;
 	pBar->pev->avelocity = Vector(CROWBAR_THROW_SPIN, 0, 0); // end over end
 	pBar->m_hThrower = pOwner;
+
+	// The bar finds its own way home after a while, so a throw that sails off a
+	// cliff does not leave the Killer permanently unarmed. The clock starts now,
+	// in flight - time spent lying on the floor counts against it too.
+	if (ch_crowbar_return_time.value > 0)
+	{
+		pBar->SetThink(&CCrowbarProjectile::ReturnThink);
+		pBar->pev->nextthink = gpGlobals->time + ch_crowbar_return_time.value;
+	}
 
 	return pBar;
 }
@@ -268,14 +282,35 @@ void CCrowbarProjectile::PickupTouch(CBaseEntity* pOther)
 	if (static_cast<CBaseEntity*>(m_hThrower) != pOther)
 		return;
 
-	CBasePlayer* pPlayer = (CBasePlayer*)pOther;
+	GiveBackToThrower();
+}
+
+bool CCrowbarProjectile::GiveBackToThrower()
+{
+	CBaseEntity* pThrower = m_hThrower;
+
+	if (!pThrower || !pThrower->IsPlayer() || !pThrower->IsAlive())
+		return false;
+
+	CBasePlayer* pPlayer = (CBasePlayer*)pThrower;
 
 	if (pPlayer->HasNamedPlayerItem("weapon_crowbar"))
-		return;
+		return false;
 
 	pPlayer->GiveNamedItem("weapon_crowbar");
 	EMIT_SOUND(ENT(pPlayer->pev), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
 
+	UTIL_Remove(this);
+	return true;
+}
+
+void CCrowbarProjectile::ReturnThink()
+{
+	if (GiveBackToThrower())
+		return;
+
+	// The thrower is dead, gone, or somehow already armed - the bar is nobody's
+	// pickup any more, so it just disappears.
 	UTIL_Remove(this);
 }
 

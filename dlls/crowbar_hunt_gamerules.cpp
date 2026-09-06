@@ -266,7 +266,7 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole)
 void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
 {
 	char szText[128];
-	snprintf(szText, sizeof(szText), "WAITING FOR PLAYERS...\n%d of %d connected",
+	snprintf(szText, sizeof(szText), "Waiting for players...\n%d of %d connected",
 		CountConnectedPlayers(), CH_MIN_PLAYERS);
 
 	hudtextparms_t parms;
