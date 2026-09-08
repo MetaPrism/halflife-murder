@@ -896,6 +896,18 @@ void CHalfLifeCrowbarHunt::ForceRespawn(CBasePlayer* pPlayer) const
 	pPlayer->pev->effects |= EF_NOINTERP;
 	pPlayer->pev->iuser1 = 0; // disable any spec modes
 	pPlayer->pev->iuser2 = 0;
+
+	// Spawn() sets m_fInitHUD, so the next UpdateClientData() sends gmsgResetHUD
+	// and the client wipes its HUD state - health, the weapon list, ammo. What it
+	// does *not* do is invalidate the server's cache of what the client already
+	// knows: m_iClientHealth still reads 100 and m_fKnownItem is still true, so
+	// neither the health value nor the weapon list is ever sent again and those
+	// HUD elements stay dead for the rest of the map. (Only the battery survived,
+	// because Spawn() does reset m_iClientBattery.) Most visible on the second
+	// player to join a WaitingForPlayers server: their connect Spawn() is followed
+	// immediately by this one when the join takes the server to CH_MIN_PLAYERS.
+	// ForceClientDllUpdate() is the SDK's own "resend everything" path.
+	pPlayer->ForceClientDllUpdate();
 }
 
 // Belt-and-braces wipe. PlayerSpawn() already strips anyone it respawns, but
