@@ -462,8 +462,8 @@ cvar_t sv_crowbarhunt = {"sv_crowbarhunt", "1", FCVAR_SERVER};
 
 cvar_t ch_crowbar_return_time = {"ch_crowbar_return_time", "40", FCVAR_SERVER};
 
-cvar_t ch_sprint_speed = {"ch_sprint_speed", "320", FCVAR_SERVER};
-cvar_t ch_base_speed = {"ch_base_speed", "270", FCVAR_SERVER};
+cvar_t ch_sprint_speed = {"ch_sprint_speed", "270", FCVAR_SERVER};
+cvar_t ch_base_speed = {"ch_base_speed", "240", FCVAR_SERVER};
 
 static bool SV_InitServer()
 {

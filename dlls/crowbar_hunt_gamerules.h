@@ -141,6 +141,11 @@ private:
 	void ForceRespawnDeadPlayers() const;
 	void MoveDeadPlayersToObserver() const;
 
+	// Park an alive, roleless player in a live round (a mid-round joiner) in
+	// observer mode. Deferred out of PlayerSpawn(), which runs too early for
+	// the spectator view to survive ClientPutInServer().
+	void EnforceObserverForUnassigned(CBasePlayer* pPlayer) const;
+
 	// Leave a visible body behind at the point a player was killed.
 	static void LeaveCorpse(CBasePlayer* pPlayer);
 

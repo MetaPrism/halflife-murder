@@ -613,6 +613,11 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 	// Killer - or stops sprinting - drops back to base speed the same frame.
 	UpdatePlayerSpeed(pPlayer);
 
+	// Catches anyone alive in a live round without a role: a mid-round joiner,
+	// or someone who connected during the countdown after AssignRoles() had
+	// already run. Idempotent - PFLAG_OBSERVER means it is already done.
+	EnforceObserverForUnassigned(pPlayer);
+
 	if (!pPlayer->IsAlive() || m_roundState != CHRoundState::InProgress)
 		return;
 
@@ -744,8 +749,24 @@ CHRole CHalfLifeCrowbarHunt::GetPlayerRole(CBasePlayer* pPlayer) const
 // ---------------------------------------------------------------------------
 CBasePlayer* CHalfLifeCrowbarHunt::GetPlayerByIndex(int index)
 {
-	// UTIL_PlayerByIndex() returns null for slots nobody is connected to.
-	return static_cast<CBasePlayer*>(UTIL_PlayerByIndex(index));
+	// UTIL_PlayerByIndex() only rules out slots the engine never allocated: it
+	// checks edict->free, and a player edict is *not* freed when that client
+	// disconnects - it stays allocated, still a CBasePlayer, for the rest of
+	// the map. So every count built on it keeps counting everyone who has ever
+	// been on the server, which is why a lone remaining player never took the
+	// round below CH_MIN_PLAYERS. FL_CLIENT plus a non-empty netname is what
+	// actually says someone is on the other end of the slot.
+	CBasePlayer* pPlayer = static_cast<CBasePlayer*>(UTIL_PlayerByIndex(index));
+
+	if (!pPlayer || !pPlayer->IsNetClient())
+		return nullptr;
+
+	const char* pszName = STRING(pPlayer->pev->netname);
+
+	if (!pszName || '\0' == pszName[0])
+		return nullptr;
+
+	return pPlayer;
 }
 
 int CHalfLifeCrowbarHunt::CountConnectedPlayers() const
@@ -839,9 +860,13 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 	if (role == CHRole::Unassigned)
 	{
 		// Connected after roles were handed out - sit this round out rather
-		// than joining as a free extra Survivor.
+		// than joining as a free extra Survivor. The observer transition is
+		// deliberately not done here: for a joining client this runs inside
+		// CBasePlayer::Spawn(), and ClientPutInServer() zeroes iuser1/iuser2
+		// immediately afterwards, cancelling the spectator view and leaving
+		// the joiner playing the round as an invisible noclipping player.
+		// PlayerThink() applies it a frame later, once nothing undoes it.
 		pPlayer->RemoveAllItems(false);
-		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
 		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Round in progress.\nYou'll join the next one.\n");
 		return;
 	}
@@ -926,6 +951,25 @@ void CHalfLifeCrowbarHunt::MoveDeadPlayersToObserver() const
 		LeaveCorpse(pPlayer);
 		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
 	}
+}
+
+// The other half of PlayerSpawn()'s Unassigned branch, run from PlayerThink()
+// so ClientPutInServer() can no longer undo it. A roleless player alive in a
+// live round is someone who missed role assignment: park them in observer mode
+// until ResetForNextRound() takes everybody back out.
+void CHalfLifeCrowbarHunt::EnforceObserverForUnassigned(CBasePlayer* pPlayer) const
+{
+	if (m_roundState != CHRoundState::InProgress)
+		return;
+
+	if (!pPlayer->IsAlive() || GetPlayerRole(pPlayer) != CHRole::Unassigned)
+		return;
+
+	if ((pPlayer->m_afPhysicsFlags & PFLAG_OBSERVER) != 0)
+		return; // already spectating
+
+	pPlayer->RemoveAllItems(false);
+	pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
 }
 
 // Snapshot a player's body into a standalone entity, so it stays visible after
