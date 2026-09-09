@@ -24,12 +24,9 @@
 #define COLUMN_TRACKER 0
 #define COLUMN_NAME 1
 #define COLUMN_CLASS 2
-#define COLUMN_KILLS 3
-#define COLUMN_DEATHS 4
-#define COLUMN_LATENCY 5
-#define COLUMN_VOICE 6
-#define COLUMN_BLANK 7
-#define NUM_COLUMNS 8
+#define COLUMN_LATENCY 3
+#define COLUMN_BLANK 4
+#define NUM_COLUMNS 5
 #define NUM_ROWS (MAX_PLAYERS_HUD + (MAX_SCOREBOARD_TEAMS * 2))
 
 using namespace vgui;

@@ -504,7 +504,7 @@ bool CCrowbar::Swing(bool fFirst)
 				// override the volume here, cause we don't play texture sounds in multiplayer,
 				// and fvolbar is going to be 0 from the above call.
 
-				fvolbar = 1;
+				fvolbar = 0.5;
 			}
 
 			// also play crowbar strike

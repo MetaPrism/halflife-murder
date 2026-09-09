@@ -58,12 +58,9 @@ public:
 SBColumnInfo g_ColumnInfo[NUM_COLUMNS] =
 	{
 		{NULL, 24, Label::a_east},	// tracker column
-		{NULL, 140, Label::a_east}, // name
+		{NULL, 266, Label::a_east}, // name
 		{NULL, 56, Label::a_east},	// class
-		{"#SCORE", 40, Label::a_east},
-		{"#DEATHS", 46, Label::a_east},
 		{"#LATENCY", 46, Label::a_east},
-		{"#VOICE", 40, Label::a_east},
 		{NULL, 2, Label::a_east}, // blank column to take up the slack
 };
 
@@ -729,17 +726,7 @@ void ScorePanel::FillGrid()
 						pLabel->setFont2(smallfont);
 					}
 					break;
-				case COLUMN_VOICE:
-					break;
 				case COLUMN_CLASS:
-					break;
-				case COLUMN_KILLS:
-					if (m_iIsATeam[row] == TEAM_YES)
-						sprintf(sz, "%d", team_info->frags);
-					break;
-				case COLUMN_DEATHS:
-					if (m_iIsATeam[row] == TEAM_YES)
-						sprintf(sz, "%d", team_info->deaths);
 					break;
 				case COLUMN_LATENCY:
 					if (m_iIsATeam[row] == TEAM_YES)
@@ -770,10 +757,6 @@ void ScorePanel::FillGrid()
 					}
 					*/
 					sprintf(sz, "%s  ", pl_info->name);
-					break;
-				case COLUMN_VOICE:
-					sz[0] = 0;
-					GetClientVoiceMgr()->UpdateSpeakerImage(pLabel, m_iSortedRows[row]);
 					break;
 				case COLUMN_CLASS:
 					// No class for other team's members (unless allied or spectator)
@@ -821,12 +804,6 @@ void ScorePanel::FillGrid()
 					*/
 					break;
 
-				case COLUMN_KILLS:
-					sprintf(sz, "%d", g_PlayerExtraInfo[m_iSortedRows[row]].frags);
-					break;
-				case COLUMN_DEATHS:
-					sprintf(sz, "%d", g_PlayerExtraInfo[m_iSortedRows[row]].deaths);
-					break;
 				case COLUMN_LATENCY:
 					sprintf(sz, "%d", g_PlayerInfoList[m_iSortedRows[row]].ping);
 					break;
