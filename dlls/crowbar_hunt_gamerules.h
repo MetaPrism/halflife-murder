@@ -84,6 +84,10 @@ public:
 	// Weapons belong to roles: the crowbar marks the Killer and the revolver
 	// the Hunter, so neither can be traded across that line by picking one up.
 	bool CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerItem* pItem) override;
+
+	// The weapon gate above is not enough on its own: a weaponbox hands its
+	// ammo over before it asks about its weapons, so ammo needs the same say.
+	bool CanHaveAmmo(CBasePlayer* pPlayer, const char* pszAmmoName, int iMaxCarry) override;
 	const char* GetGameDescription() override { return "Crowbar Hunt"; }
 
 	// Broken brush entities have to survive until the next round reset can put

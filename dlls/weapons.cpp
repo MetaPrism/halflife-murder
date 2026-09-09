@@ -1181,7 +1181,15 @@ void CWeaponBox::Touch(CBaseEntity* pOther)
 		if (!FStringNull(m_rgiszAmmo[i]))
 		{
 			// there's some ammo of this type.
-			pPlayer->GiveAmmo(m_rgAmmo[i], STRING(m_rgiszAmmo[i]), MaxAmmoCarry(m_rgiszAmmo[i]));
+			// Like the weapon loop below, this used to hand ammo over without
+			// taking no for an answer: the slot was emptied whether or not the
+			// player actually took it, so a refusal - a full player, or a mode
+			// whose CanHaveAmmo() says this ammo is not theirs - destroyed the
+			// ammo instead of leaving it for someone who can use it.
+			if (pPlayer->GiveAmmo(m_rgAmmo[i], STRING(m_rgiszAmmo[i]), MaxAmmoCarry(m_rgiszAmmo[i])) == -1)
+			{
+				continue;
+			}
 
 			//ALERT ( at_console, "Gave %d rounds of %s\n", m_rgAmmo[i], STRING(m_rgiszAmmo[i]) );
 

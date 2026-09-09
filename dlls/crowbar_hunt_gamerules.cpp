@@ -629,8 +629,26 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 
 	// Only for whoever is actually carrying the revolver - a Survivor who picks
 	// it up off the dead Hunter inherits the endless reserve with it.
-	if (pPlayer->ammo_357 < _357_MAX_CARRY && pPlayer->HasNamedPlayerItem("weapon_357"))
-		pPlayer->ammo_357 = _357_MAX_CARRY;
+	//
+	// CBasePlayer::ammo_357 is not the ammo store, only a mirror of it that
+	// TabulateAmmo() rewrites from m_rgAmmo[] several times a frame. The reload
+	// that actually spends the reserve - CBasePlayerWeapon::ItemPostFrame() -
+	// reads and writes m_rgAmmo[] directly, so topping up the mirror moved the
+	// HUD number for one frame and left the real reserve draining to empty.
+	if (pPlayer->HasNamedPlayerItem("weapon_357"))
+	{
+		const int iAmmoIndex = CBasePlayer::GetAmmoIndex("357");
+
+		if (iAmmoIndex >= 0 && pPlayer->m_rgAmmo[iAmmoIndex] < _357_MAX_CARRY)
+		{
+			pPlayer->m_rgAmmo[iAmmoIndex] = _357_MAX_CARRY;
+
+			// Put the mirror back in step in the same breath: CPython::Reload()
+			// gates on ammo_357, and UpdateClientData() sends the HUD count from
+			// m_rgAmmo[], so leaving the two disagreeing is what hid this bug.
+			pPlayer->TabulateAmmo();
+		}
+	}
 }
 
 // The engine's movement code only ever clamps a player down: PM_CheckParamters()
@@ -693,6 +711,27 @@ bool CHalfLifeCrowbarHunt::CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerIt
 		return false;
 
 	return CHalfLifeMultiplay::CanHavePlayerItem(pPlayer, pItem);
+}
+
+// Ammo needs the same gate as the weapon it feeds. CWeaponBox::Touch() deals
+// its ammo out before it asks the gamerules about its weapons, so the Killer
+// walking over the dead Hunter's box would take the 357 rounds with him even
+// though the revolver itself stays in the box - leaving the Survivor who
+// inherits the gun with nothing behind the round already in the chamber.
+bool CHalfLifeCrowbarHunt::CanHaveAmmo(CBasePlayer* pPlayer, const char* pszAmmoName, int iMaxCarry)
+{
+	// Same reasoning as CanHavePlayerItem(): between rounds nothing is
+	// collectable, so a leftover box can't be looted during the reset.
+	if (m_roundState != CHRoundState::InProgress)
+		return false;
+
+	// Asked through the same helper as the weapon so the two can never
+	// disagree about who the revolver belongs to.
+	if (pPlayer && pszAmmoName && FStrEq(pszAmmoName, "357") &&
+		!RoleCanCarryWeapon(GetPlayerRole(pPlayer), "weapon_357"))
+		return false;
+
+	return CHalfLifeMultiplay::CanHaveAmmo(pPlayer, pszAmmoName, iMaxCarry);
 }
 
 bool CHalfLifeCrowbarHunt::CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker)

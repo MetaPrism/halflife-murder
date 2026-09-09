@@ -142,6 +142,18 @@ constexpr float CROWBAR_THROW_LIFT = 100.0f;
 constexpr float CROWBAR_THROW_GRAVITY = 0.6f;
 constexpr float CROWBAR_THROW_SPIN = -1500.0f;
 
+// The bar flies as an 8-unit cube but lands in the standard 32x32x16 weapon
+// pickup box - and the engine rounds that up again to one of its fixed
+// collision hulls, which is larger still. A bar that stops flush against a
+// wall or ceiling therefore lands with that box buried in the brush, and
+// MOVETYPE_TOSS only works it loose a few units per frame: that is the bar
+// visibly dragging itself out of the surface before it starts to fall.
+// Stepping the origin back along the surface normal first drops it into open
+// space, so it just falls.
+constexpr float CROWBAR_LAND_CLEARANCE = 2.0f; // margin past the box itself
+constexpr float CROWBAR_LAND_PROBE = 32.0f;    // how far ahead to look for the surface
+constexpr float CROWBAR_LAND_BACKOFF = 8.0f;   // and how far behind it to start looking
+
 class CCrowbarProjectile : public CBaseAnimating
 {
 public:
@@ -162,6 +174,10 @@ public:
 
 private:
 	void Land();
+
+	// Offset that would lift the landed pickup box clear of whatever the bar
+	// just hit, or zero if it needs none.
+	Vector GetLandClearance(const Vector& vecMins, const Vector& vecMaxs) const;
 
 	// Hands the bar back to the thrower and removes it. No-op if they cannot
 	// take it (gone, dead, or already holding a crowbar).
@@ -258,6 +274,13 @@ void CCrowbarProjectile::Land()
 {
 	// Same physics setup CBasePlayerItem::FallInit() uses for a dropped weapon:
 	// falls to the floor, then sits there as a trigger waiting to be walked over.
+	const Vector vecLandMins(-16, -16, 0);
+	const Vector vecLandMaxs(16, 16, 16);
+
+	// Measured first: the velocity below is what points at the surface, and the
+	// next two lines throw it away.
+	const Vector vecClearance = GetLandClearance(vecLandMins, vecLandMaxs);
+
 	pev->owner = nullptr; // the thrower has to be able to touch it now
 	pev->velocity = g_vecZero;
 	pev->avelocity = g_vecZero;
@@ -266,10 +289,61 @@ void CCrowbarProjectile::Land()
 	pev->movetype = MOVETYPE_TOSS;
 	pev->solid = SOLID_TRIGGER;
 
-	UTIL_SetSize(pev, Vector(-16, -16, 0), Vector(16, 16, 16));
-	UTIL_SetOrigin(pev, pev->origin);
+	UTIL_SetSize(pev, vecLandMins, vecLandMaxs);
+	UTIL_SetOrigin(pev, pev->origin + vecClearance);
 
 	SetTouch(&CCrowbarProjectile::PickupTouch);
+}
+
+// Called from Land(), and only from there: it reads pev->velocity, which is
+// still the incoming velocity at that point. The engine runs an entity's touch
+// callback from inside SV_PushEntity, before SV_Physics_Toss clips the velocity
+// to the surface it hit, so the flight path is a reliable pointer at the plane -
+// but only until Land() zeroes it.
+Vector CCrowbarProjectile::GetLandClearance(const Vector& vecMins, const Vector& vecMaxs) const
+{
+	if (pev->velocity.Length() < 1)
+		return g_vecZero;
+
+	const Vector vecDir = pev->velocity.Normalize();
+
+	TraceResult tr;
+
+	// Started behind the impact point rather than on it: the bar stops flush
+	// against the plane, and a trace beginning exactly on a surface can come
+	// back start-solid with no usable normal. A few units back down the flight
+	// path is somewhere the bar provably was a moment ago, so it is open space.
+	//
+	// ignore_monsters: a bar that hit a player carries on to whatever is really
+	// behind them. A body is not something it can get wedged in, so if there is
+	// nothing solid back there it needs no clearance at all.
+	UTIL_TraceLine(pev->origin - vecDir * CROWBAR_LAND_BACKOFF,
+		pev->origin + vecDir * CROWBAR_LAND_PROBE, ignore_monsters, ENT(pev), &tr);
+
+	if (0 != tr.fAllSolid || 1.0f == tr.flFraction)
+		return g_vecZero;
+
+	const Vector vecNormal = tr.vecPlaneNormal;
+
+	// How far the landed box reaches from its own origin towards that surface.
+	// Done per axis because the box is not centred on the origin - its mins are
+	// flush with the origin in z, which is what makes an ordinary floor landing
+	// need no clearance and leaves this alone.
+	const float flReach =
+		fabs(vecNormal.x) * (vecNormal.x > 0 ? -vecMins.x : vecMaxs.x) +
+		fabs(vecNormal.y) * (vecNormal.y > 0 ? -vecMins.y : vecMaxs.y) +
+		fabs(vecNormal.z) * (vecNormal.z > 0 ? -vecMins.z : vecMaxs.z);
+
+	// ...against the room it already has, measured from the plane it stopped on.
+	const float flHave = DotProduct(pev->origin - tr.vecEndPos, vecNormal);
+	const float flPush = flReach + CROWBAR_LAND_CLEARANCE - flHave;
+
+	if (flPush <= 0)
+		return g_vecZero;
+
+	// Always roughly back down the flight path, into space the bar has just
+	// flown through, so this cannot shove it somewhere it could not reach.
+	return vecNormal * flPush;
 }
 
 void CCrowbarProjectile::PickupTouch(CBaseEntity* pOther)
