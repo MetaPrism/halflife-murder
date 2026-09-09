@@ -105,6 +105,9 @@
     <ClCompile Include="..\..\dlls\crowbar.cpp">
       <Filter>Source Files\dlls</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\dlls\ch_bots.cpp">
+      <Filter>Source Files\dlls</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\dlls\crowbar_hunt_gamerules.cpp">
       <Filter>Source Files\dlls</Filter>
     </ClCompile>
@@ -429,6 +432,9 @@
       <Filter>Header Files\dlls</Filter>
     </ClInclude>
     <ClInclude Include="..\..\dlls\func_break.h">
+      <Filter>Header Files\dlls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dlls\ch_bots.h">
       <Filter>Header Files\dlls</Filter>
     </ClInclude>
     <ClInclude Include="..\..\dlls\crowbar_hunt_gamerules.h">

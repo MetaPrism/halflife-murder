@@ -18,6 +18,7 @@
 #include "client.h"
 #include "game.h"
 #include "filesystem_utils.h"
+#include "ch_bots.h"
 
 cvar_t displaysoundlist = {"displaysoundlist", "0"};
 
@@ -950,6 +951,7 @@ void GameDLLInit()
 	CVAR_REGISTER(&sv_pushable_fixed_tick_fudge);
 
 	InitMapLoadingUtils();
+	InitBotCommands();
 
 	SERVER_COMMAND("exec skill.cfg\n");
 }

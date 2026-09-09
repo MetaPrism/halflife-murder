@@ -822,8 +822,8 @@ void CHalfLifeCrowbarHunt::ServicePunishment(CBasePlayer* pPlayer)
 	if (m_flPunishEndTime[idx] != 0.0f && gpGlobals->time >= m_flPunishEndTime[idx])
 	{
 		m_flPunishEndTime[idx] = 0.0f;
-		ClientPrint(pPlayer->pev, HUD_PRINTCENTER,
-			"Penalty served.\nYou can move - and carry a revolver - again.\n");
+		//ClientPrint(pPlayer->pev, HUD_PRINTCENTER,
+		//	"Penalty served.\nYou can move - and carry a revolver - again.\n");
 	}
 
 	const bool bPunished = m_flPunishEndTime[idx] != 0.0f;

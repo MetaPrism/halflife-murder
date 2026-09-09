@@ -33,6 +33,7 @@ target_sources(hl PRIVATE
 	controller.cpp
 	crossbow.cpp
 	crowbar.cpp
+	ch_bots.cpp
 	crowbar_hunt_gamerules.cpp
 	defaultai.cpp
 	doors.cpp
@@ -144,6 +145,7 @@ target_sources(hl PRIVATE
 	extdll.h
 	flyingmonster.h
 	func_break.h
+	ch_bots.h
 	crowbar_hunt_gamerules.h
 	gamerules.h
 	hornet.h

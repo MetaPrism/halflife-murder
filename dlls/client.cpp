@@ -47,6 +47,7 @@
 #include "pm_shared.h"
 #include "pm_defs.h"
 #include "UserMessages.h"
+#include "ch_bots.h"
 
 DLL_GLOBAL unsigned int g_ulFrameCount;
 
@@ -99,6 +100,8 @@ GLOBALS ASSUMED SET:  g_fGameOver
 */
 void ClientDisconnect(edict_t* pEntity)
 {
+	BotClientDisconnected(pEntity);
+
 	if (g_fGameOver)
 		return;
 
@@ -888,6 +891,8 @@ static bool g_LastAllowBunnyHoppingState = false;
 //
 void StartFrame()
 {
+	BotThink();
+
 	if (g_pGameRules)
 		g_pGameRules->Think();
 
