@@ -24,6 +24,16 @@ constexpr float CH_357_DAMAGE = 100.0f;
 // TODO: expose as a cvar if this needs tuning per server.
 constexpr float CH_PROXVOICE_RADIUS = 800.0f;
 
+// The shape of the misfire penalty; its length is ch_punish_time. Barely more
+// than a walk and a jump too short to clear anything, so a shooter who guessed
+// wrong is left where they stand for whoever comes looking.
+constexpr float CH_PUNISH_SPEED = 100.0f;
+
+// Percentage of the normal jump height, handed to the client as a physinfo
+// string because PM_Jump() has to read the same number the server does.
+constexpr const char* CH_PUNISH_JUMP_PERCENT = "50";
+constexpr const char* CH_NORMAL_JUMP_PERCENT = "100";
+
 namespace
 {
 // Map entities whose spawn state is snapshotted and restored between rounds.
@@ -122,6 +132,8 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 
 	for (int i = 0; i <= MAX_PLAYERS; i++)
 		m_playerRoles[i] = CHRole::Unassigned;
+
+	ClearPunishments();
 
 	// CHalfLifeMultiplay's constructor already called RefreshSkillData(), but it
 	// did so while the object was still a CHalfLifeMultiplay - virtual dispatch
@@ -319,6 +331,8 @@ void CHalfLifeCrowbarHunt::ResetForNextRound()
 	for (int i = 0; i <= MAX_PLAYERS; i++)
 		m_playerRoles[i] = CHRole::Unassigned;
 
+	ClearPunishments();
+
 	SetRoundState(CHRoundState::WaitingForPlayers);
 
 	// Only the dead need picking up here - it gets them out of observer mode
@@ -501,6 +515,10 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 	for (int i = 0; i <= MAX_PLAYERS; i++)
 		m_playerRoles[i] = CHRole::Unassigned;
 
+	// A penalty belongs to the round it was earned in - carrying one over would
+	// hand somebody a crippled Killer through no fault of their own.
+	ClearPunishments();
+
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
 		CBasePlayer* pPlayer = GetPlayerByIndex(i);
@@ -615,8 +633,10 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 	if (!pPlayer)
 		return;
 
-	// Runs for everyone in every round state, so a player who stops being the
-	// Killer - or stops sprinting - drops back to base speed the same frame.
+	// Both run for everyone in every round state, so a player who stops being
+	// the Killer - or stops sprinting, or serves out a penalty - drops back to
+	// normal movement the same frame. Punishment first: it decides the speed.
+	ServicePunishment(pPlayer);
 	UpdatePlayerSpeed(pPlayer);
 
 	// Catches anyone alive in a live round without a role: a mid-round joiner,
@@ -671,6 +691,13 @@ void CHalfLifeCrowbarHunt::EnforceSpeedCeiling()
 // (cl_dll/input.cpp); this is where it is granted or ignored.
 void CHalfLifeCrowbarHunt::UpdatePlayerSpeed(CBasePlayer* pPlayer) const
 {
+	// A penalty outranks everything else a role might grant, sprint included.
+	if (IsPunished(pPlayer))
+	{
+		pPlayer->pev->maxspeed = CH_PUNISH_SPEED;
+		return;
+	}
+
 	const bool bMaySprint =
 		m_roundState == CHRoundState::InProgress &&
 		GetPlayerRole(pPlayer) == CHRole::Killer &&
@@ -678,6 +705,157 @@ void CHalfLifeCrowbarHunt::UpdatePlayerSpeed(CBasePlayer* pPlayer) const
 		(pPlayer->pev->button & IN_RUN) != 0;
 
 	pPlayer->pev->maxspeed = bMaySprint ? ch_sprint_speed.value : ch_base_speed.value;
+}
+
+// ---------------------------------------------------------------------------
+// Misfire punishment
+//
+// The revolver is the only real weapon in the mode and the Hunter is never told
+// who the Killer is, so without a cost the strongest play is to shoot people
+// until one of them turns out to have been the Killer. Guessing wrong puts the
+// gun on the floor and leaves the shooter slow and unable to jump for
+// ch_punish_time seconds - long enough for the Killer to reach them, and long
+// enough that someone else may well have walked off with the revolver by the
+// time they are allowed to hold one again.
+// ---------------------------------------------------------------------------
+
+// Hooked on damage rather than on a kill so a hit that only wounds still counts,
+// and so the shooter is charged even when their shot is what ends the round.
+bool CHalfLifeCrowbarHunt::FPlayerCanTakeDamage(CBasePlayer* pPlayer, CBaseEntity* pAttacker)
+{
+	if (m_roundState == CHRoundState::InProgress &&
+		pPlayer && pAttacker && pAttacker != pPlayer && pAttacker->IsPlayer() &&
+		GetPlayerRole(pPlayer) != CHRole::Killer)
+	{
+		CBasePlayer* pShooter = static_cast<CBasePlayer*>(pAttacker);
+
+		// What the shooter is holding is what identifies the shot: this hook
+		// sees every source of damage, and only the revolver is being policed.
+		// The Killer's crowbar - thrown or swung - is the round working as
+		// intended, and so is a Survivor pushing someone off a ledge.
+		if (pShooter->m_pActiveItem &&
+			FStrEq(STRING(pShooter->m_pActiveItem->pev->classname), "weapon_357"))
+			PunishShooter(pShooter);
+	}
+
+	// The shot still lands. Missing the Killer costs the shooter, not the
+	// person they hit - a bullet that stopped being lethal would make firing
+	// blind into a crowd free.
+	return CHalfLifeMultiplay::FPlayerCanTakeDamage(pPlayer, pAttacker);
+}
+
+void CHalfLifeCrowbarHunt::PunishShooter(CBasePlayer* pPlayer)
+{
+	if (ch_punish_time.value <= 0.0f)
+		return;
+
+	const int idx = ENTINDEX(pPlayer->edict());
+
+	if (idx < 1 || idx > MAX_PLAYERS)
+		return;
+
+	m_flPunishEndTime[idx] = gpGlobals->time + ch_punish_time.value;
+
+	// The gun is taken away a frame later, by ServicePunishment(). We are
+	// called from inside CBasePlayer::TakeDamage(), which is itself inside the
+	// revolver's own PrimaryAttack(): dropping it here would holster and repack
+	// the weapon that is still part-way through firing.
+
+	hudtextparms_t parms;
+	memset(&parms, 0, sizeof(parms));
+
+	parms.x = -1.0f;
+	parms.y = 0.7f;
+	parms.effect = 2;
+
+	parms.r1 = 200;
+	parms.g1 = 40;
+	parms.b1 = 40;
+	parms.a1 = 255;
+
+	parms.r2 = 255;
+	parms.g2 = 255;
+	parms.b2 = 255;
+	parms.a2 = 255;
+
+	parms.fadeinTime = 0.05f;
+	parms.fadeoutTime = 1.5f;
+	parms.holdTime = 3.5f;
+	parms.fxTime = 0.25f;
+
+	// Channel 1 is AnnounceRole()'s; this is a different message with the same
+	// weight, and the two can never be on screen at once anyway.
+	parms.channel = 1;
+
+	UTIL_HudMessage(pPlayer, parms,
+		UTIL_VarArgs("THAT WASN'T THE KILLER\nYou drop the revolver. %d seconds crippled.",
+			static_cast<int>(ch_punish_time.value)));
+}
+
+bool CHalfLifeCrowbarHunt::IsPunished(CBasePlayer* pPlayer) const
+{
+	if (!pPlayer)
+		return false;
+
+	const int idx = ENTINDEX(pPlayer->edict());
+
+	if (idx < 1 || idx > MAX_PLAYERS)
+		return false;
+
+	return m_flPunishEndTime[idx] != 0.0f && gpGlobals->time < m_flPunishEndTime[idx];
+}
+
+void CHalfLifeCrowbarHunt::ClearPunishments()
+{
+	for (int i = 0; i <= MAX_PLAYERS; i++)
+		m_flPunishEndTime[i] = 0.0f;
+}
+
+// Run every frame for every player, from PlayerThink().
+void CHalfLifeCrowbarHunt::ServicePunishment(CBasePlayer* pPlayer)
+{
+	const int idx = ENTINDEX(pPlayer->edict());
+
+	if (idx < 1 || idx > MAX_PLAYERS)
+		return;
+
+	if (m_flPunishEndTime[idx] != 0.0f && gpGlobals->time >= m_flPunishEndTime[idx])
+	{
+		m_flPunishEndTime[idx] = 0.0f;
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER,
+			"Penalty served.\nYou can move - and carry a revolver - again.\n");
+	}
+
+	const bool bPunished = m_flPunishEndTime[idx] != 0.0f;
+
+	// Deferred out of PunishShooter() - see the note there. Checked every frame
+	// rather than once so it also catches a revolver that arrives mid-penalty;
+	// CanHavePlayerItem() should stop that, but losing the gun is the point of
+	// the penalty and is not worth trusting to a single gate.
+	if (bPunished && pPlayer->IsAlive() && pPlayer->HasNamedPlayerItem("weapon_357"))
+	{
+		// DropPlayerItem() takes a mutable string.
+		char szRevolver[] = "weapon_357";
+		pPlayer->DropPlayerItem(szRevolver);
+	}
+
+	UpdatePlayerJump(pPlayer, bPunished);
+}
+
+// Speed can be clamped server-side because PM_CheckParamters() reads
+// pev->maxspeed, but jump height is a constant inside PM_Jump(), which runs on
+// the client too. Clamping it only on the server would rubber-band every jump,
+// so the height goes out in the client's physinfo string - the same channel the
+// longjump module uses - and PM_Jump() reads it on both sides.
+//
+// Only written when it changes: physinfo is networked, and this runs every frame.
+void CHalfLifeCrowbarHunt::UpdatePlayerJump(CBasePlayer* pPlayer, bool bPunished)
+{
+	const char* pszWanted = bPunished ? CH_PUNISH_JUMP_PERCENT : CH_NORMAL_JUMP_PERCENT;
+	const char* pszCurrent = g_engfuncs.pfnGetPhysicsKeyValue(pPlayer->edict(), "chjs");
+
+	if (!pszCurrent || !FStrEq(pszCurrent, pszWanted))
+		g_engfuncs.pfnSetPhysicsKeyValue(pPlayer->edict(), "chjs", pszWanted);
 }
 
 // A role's weapon is part of its identity, so weapons can't change hands: a
@@ -710,6 +888,13 @@ bool CHalfLifeCrowbarHunt::CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerIt
 	if (pPlayer && pItem && !RoleCanCarryWeapon(GetPlayerRole(pPlayer), STRING(pItem->pev->classname)))
 		return false;
 
+	// While the penalty is running the shooter can't rearm - not with the gun
+	// they dropped, and not with one off anybody else's body. Once it expires
+	// they can pick a revolver up again like any other Survivor.
+	if (pPlayer && pItem && IsPunished(pPlayer) &&
+		FStrEq(STRING(pItem->pev->classname), "weapon_357"))
+		return false;
+
 	return CHalfLifeMultiplay::CanHavePlayerItem(pPlayer, pItem);
 }
 
@@ -729,6 +914,11 @@ bool CHalfLifeCrowbarHunt::CanHaveAmmo(CBasePlayer* pPlayer, const char* pszAmmo
 	// disagree about who the revolver belongs to.
 	if (pPlayer && pszAmmoName && FStrEq(pszAmmoName, "357") &&
 		!RoleCanCarryWeapon(GetPlayerRole(pPlayer), "weapon_357"))
+		return false;
+
+	// And the same for a punished shooter, or they would strip the rounds out
+	// of the box they just dropped and leave the next Hunter with one shot.
+	if (pPlayer && pszAmmoName && FStrEq(pszAmmoName, "357") && IsPunished(pPlayer))
 		return false;
 
 	return CHalfLifeMultiplay::CanHaveAmmo(pPlayer, pszAmmoName, iMaxCarry);

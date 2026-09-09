@@ -60,6 +60,11 @@ extern cvar_t ch_base_speed;
 // standing near them. 0 lets everyone hear everyone, as normal.
 extern cvar_t ch_proxvoice;
 
+// Seconds a revolver carrier is penalised for after shooting someone who wasn't
+// the Killer: how long they stay slow, unable to jump properly, and barred from
+// picking a revolver back up. 0 disables the punishment entirely.
+extern cvar_t ch_punish_time;
+
 // Engine Cvars
 inline cvar_t* g_psv_gravity;
 inline cvar_t* g_psv_aim;

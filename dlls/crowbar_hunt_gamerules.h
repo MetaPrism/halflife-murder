@@ -98,6 +98,11 @@ public:
 	// main defence, so a voice that carries the whole map would give them away.
 	bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) override;
 
+	// The Hunter is never told who the Killer is, so nothing but a penalty
+	// stops them shooting on suspicion and reading the round off the bodies.
+	// This is where a shot at anyone but the Killer is caught and charged for.
+	bool FPlayerCanTakeDamage(CBasePlayer* pPlayer, CBaseEntity* pAttacker) override;
+
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
 	bool        IsCoOp() override { return false; }
@@ -118,6 +123,20 @@ private:
 	// and every player then gets held below it individually.
 	static void EnforceSpeedCeiling();
 	void        UpdatePlayerSpeed(CBasePlayer* pPlayer) const;
+
+	// --- misfire punishment ---
+	// Start the penalty running on a player who shot an innocent.
+	void PunishShooter(CBasePlayer* pPlayer);
+
+	// The whole penalty - dropped revolver, speed and jump - lasts exactly
+	// ch_punish_time seconds, so this one answer drives all three.
+	bool IsPunished(CBasePlayer* pPlayer) const;
+
+	// Per-frame upkeep: expire the timer, take the revolver away, and keep the
+	// client's predicted jump height in step with the penalty.
+	void        ServicePunishment(CBasePlayer* pPlayer);
+	void        ClearPunishments();
+	static void UpdatePlayerJump(CBasePlayer* pPlayer, bool bPunished);
 
 	// --- map reset ---
 	void        TakeMapSnapshot();  // record spawn state of resettable entities (once per map)
@@ -171,6 +190,11 @@ private:
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
 	CHRole m_playerRoles[MAX_PLAYERS + 1];
+
+	// gpGlobals->time each punished player's penalty runs out, or 0 for no
+	// penalty. Same indexing as m_playerRoles, and cleared with it: the penalty
+	// is a cost paid inside one round, not something carried into the next.
+	float m_flPunishEndTime[MAX_PLAYERS + 1];
 
 	// Spawn-time state of every resettable map entity, taken once on the first
 	// frame after the map has finished spawning its entities.

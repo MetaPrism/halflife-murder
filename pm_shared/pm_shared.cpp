@@ -2661,6 +2661,16 @@ void PM_Jump()
 	// See if user can super long jump?
 	const bool cansuperjump = atoi(pmove->PM_Info_ValueForKey(pmove->physinfo, "slj")) == 1;
 
+	// Crowbar Hunt: how high this player is allowed to jump, as a percentage of
+	// the normal 45 units. Jumping is predicted, so the height has to be
+	// something both sides can read - hence a physinfo key, the same channel
+	// "slj" above uses. Missing, 0 or >= 100 all mean the normal jump.
+	float flJumpHeight = 45.0;
+	const int chJumpPercent = atoi(pmove->PM_Info_ValueForKey(pmove->physinfo, "chjs"));
+
+	if (chJumpPercent > 0 && chJumpPercent < 100)
+		flJumpHeight = flJumpHeight * chJumpPercent / 100.0;
+
 	// Acclerate upward
 	// If we are ducking...
 	if ((0 != pmove->bInDuck) || (pmove->flags & FL_DUCKING) != 0)
@@ -2683,12 +2693,12 @@ void PM_Jump()
 		}
 		else
 		{
-			pmove->velocity[2] = sqrt(2 * 800 * 45.0);
+			pmove->velocity[2] = sqrt(2 * 800 * flJumpHeight);
 		}
 	}
 	else
 	{
-		pmove->velocity[2] = sqrt(2 * 800 * 45.0);
+		pmove->velocity[2] = sqrt(2 * 800 * flJumpHeight);
 	}
 
 	// Decay it for simulation
