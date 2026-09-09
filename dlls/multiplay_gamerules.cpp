@@ -39,11 +39,21 @@
 
 CVoiceGameMgr g_VoiceGameMgr;
 
+extern cvar_t sv_alltalk;
+
 class CMultiplayGameMgrHelper : public IVoiceGameMgrHelper
 {
 public:
 	bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) override
 	{
+		// A mode may restrict voice further than sv_alltalk opens it up, so it
+		// gets the first and final say.
+		if (!g_pGameRules->CanPlayerHearPlayer(pListener, pTalker))
+			return false;
+
+		if (0 != sv_alltalk.value)
+			return true;
+
 		if (g_teamplay)
 		{
 			if (g_pGameRules->PlayerRelationship(pListener, pTalker) != GR_TEAMMATE)

@@ -212,8 +212,6 @@ void CVoiceGameMgr::UpdateMasks()
 {
 	m_UpdateInterval = 0;
 
-	bool bAllTalk = 0 != sv_alltalk.value;
-
 	for (int iClient = 0; iClient < m_nMaxPlayers; iClient++)
 	{
 		CBaseEntity* pEnt = UTIL_PlayerByIndex(iClient + 1);
@@ -236,7 +234,9 @@ void CVoiceGameMgr::UpdateMasks()
 			for (int iOtherClient = 0; iOtherClient < m_nMaxPlayers; iOtherClient++)
 			{
 				CBaseEntity* pEnt = UTIL_PlayerByIndex(iOtherClient + 1);
-				if (pEnt && (bAllTalk || m_pHelper->CanPlayerHearPlayer(pPlayer, (CBasePlayer*)pEnt)))
+				// sv_alltalk is applied by the helper, not here, so that a game
+				// mode can be stricter than it (see CGameRules::CanPlayerHearPlayer).
+				if (pEnt && m_pHelper->CanPlayerHearPlayer(pPlayer, (CBasePlayer*)pEnt))
 				{
 					gameRulesMask[iOtherClient] = true;
 				}

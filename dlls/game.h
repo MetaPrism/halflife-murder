@@ -56,6 +56,10 @@ extern cvar_t ch_crowbar_return_time;
 extern cvar_t ch_sprint_speed;
 extern cvar_t ch_base_speed;
 
+// Proximity voice chat: while a round is live, players only hear other players
+// standing near them. 0 lets everyone hear everyone, as normal.
+extern cvar_t ch_proxvoice;
+
 // Engine Cvars
 inline cvar_t* g_psv_gravity;
 inline cvar_t* g_psv_aim;

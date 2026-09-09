@@ -18,6 +18,12 @@ constexpr int CH_MIN_PLAYERS = 2;
 constexpr float CH_CROWBAR_DAMAGE = 100.0f;
 constexpr float CH_357_DAMAGE = 100.0f;
 
+// How far a voice carries, in world units, while ch_proxvoice is on. Around a
+// large room: close enough that hiding still works, far enough that two people
+// in the same corridor can talk.
+// TODO: expose as a cvar if this needs tuning per server.
+constexpr float CH_PROXVOICE_RADIUS = 800.0f;
+
 namespace
 {
 // Map entities whose spawn state is snapshotted and restored between rounds.
@@ -687,6 +693,36 @@ bool CHalfLifeCrowbarHunt::CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerIt
 		return false;
 
 	return CHalfLifeMultiplay::CanHavePlayerItem(pPlayer, pItem);
+}
+
+bool CHalfLifeCrowbarHunt::CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker)
+{
+	if (0 == ch_proxvoice.value)
+		return true;
+
+	// Only a live round is worth keeping quiet. Between rounds everyone is
+	// standing around waiting, so let the lobby talk.
+	if (m_roundState != CHRoundState::InProgress)
+		return true;
+
+	if (pListener == pTalker)
+		return true;
+
+	// StartObserver() leaves the dead on DEAD_RESPAWNABLE, so IsAlive() is what
+	// separates players still in the round from those watching it.
+	if (!pTalker->IsAlive())
+	{
+		// The dead talk freely among themselves, but nothing they say reaches
+		// anyone still playing - otherwise dying is how you name the Killer.
+		return !pListener->IsAlive();
+	}
+
+	// An observer's origin is wherever they died, not what they are watching,
+	// so distance would be meaningless for them. Let them hear the whole map.
+	if (!pListener->IsAlive())
+		return true;
+
+	return (pTalker->pev->origin - pListener->pev->origin).Length() <= CH_PROXVOICE_RADIUS;
 }
 
 void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)

@@ -165,6 +165,10 @@ public:
 	// can be put back without a level restart. See CBreakable::Die().
 	virtual bool ShouldPreserveBrokenEntities() { return false; }
 
+	// Voice chat: lets a mode decide who hears whom (proximity chat, silencing
+	// the dead). Consulted before sv_alltalk, so a mode can be stricter than it.
+	virtual bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) { return true; }
+
 protected:
 	CBasePlayerItem* FindNextBestWeapon(CBasePlayer* pPlayer, CBasePlayerItem* pCurrentWeapon);
 };

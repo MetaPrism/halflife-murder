@@ -90,6 +90,10 @@ public:
 	// them back, so CBreakable::Die() must not free their edict.
 	bool ShouldPreserveBrokenEntities() override { return true; }
 
+	// Proximity voice chat, when ch_proxvoice is on: hiding is the Survivors'
+	// main defence, so a voice that carries the whole map would give them away.
+	bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) override;
+
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
 	bool        IsCoOp() override { return false; }
