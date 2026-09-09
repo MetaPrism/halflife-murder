@@ -539,8 +539,11 @@ void ClientCommand(edict_t* pEntity)
 
 	else if (FStrEq(pcmd, "drop"))
 	{
-		// player is dropping an item.
-		player->DropPlayerItem((char*)CMD_ARGV(1));
+		// player is dropping an item - if the mode lets them.
+		if (g_pGameRules->AllowPlayerDropCommand(player))
+		{
+			player->DropPlayerItem((char*)CMD_ARGV(1));
+		}
 	}
 	else if (FStrEq(pcmd, "fov"))
 	{

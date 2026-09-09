@@ -1340,6 +1340,22 @@ void CHalfLifeCrowbarHunt::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller
 
 	CHalfLifeMultiplay::PlayerKilled(pVictim, pKiller, pInflictor);
 
+	// DeadPlayerWeapons() is GR_PLR_DROP_GUN_NO, so the corpse drops nothing on
+	// its own - see the note there. The Hunter's revolver is the exception: it
+	// is meant to be inheritable, so it is dropped by hand here, into a box of
+	// its own. Doing it this way also fixes the case the inherited
+	// GR_PLR_DROP_GUN_ACTIVE got wrong, where a Hunter killed while holstered
+	// dropped their empty hands and took the revolver out of the round with
+	// them. We run from CBasePlayer::Killed(), well before PackDeadPlayerItems()
+	// (deferred to PlayerDeathThink()), so the gun is out of the inventory in
+	// time and its ammo goes into the box with it.
+	if (pVictim && GetPlayerRole(pVictim) == CHRole::Hunter && pVictim->HasNamedPlayerItem("weapon_357"))
+	{
+		// DropPlayerItem() takes a mutable string.
+		char szRevolver[] = "weapon_357";
+		pVictim->DropPlayerItem(szRevolver);
+	}
+
 	// The victim's health is already <= 0 here (CBasePlayer::Killed() calls us
 	// before it sets deadflag), so IsAlive() reports false and the counts
 	// below are correct. Handing them to observer mode has to wait until

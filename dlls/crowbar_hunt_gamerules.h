@@ -88,6 +88,24 @@ public:
 	// The weapon gate above is not enough on its own: a weaponbox hands its
 	// ammo over before it asks about its weapons, so ammo needs the same say.
 	bool CanHaveAmmo(CBasePlayer* pPlayer, const char* pszAmmoName, int iMaxCarry) override;
+
+	// Nobody drops a weaponbox. Everyone in this mode carries weapon_hands, and
+	// with the inherited GR_PLR_DROP_GUN_ACTIVE that is usually what the corpse
+	// would drop: a box full of nothing, sitting there looking like loot. With
+	// both rules set to NO, PackDeadPlayerItems() takes its early-out and never
+	// creates a box at all. The one drop that matters - the dead Hunter's
+	// revolver - is made explicitly in PlayerKilled() instead.
+	int DeadPlayerWeapons(CBasePlayer* pPlayer) override { return GR_PLR_DROP_GUN_NO; }
+	int DeadPlayerAmmo(CBasePlayer* pPlayer) override { return GR_PLR_DROP_AMMO_NO; }
+
+	// And no dropping by hand either. Loadouts are the role: a Killer who drops
+	// the crowbar stops reading as the Killer, a Hunter can hand the revolver to
+	// a Survivor the Killer is already chasing, and anyone can drop their empty
+	// hands and leave a box on the floor that means nothing. The one drop the
+	// mode wants - a dead Hunter's revolver - is made in code, which this does
+	// not touch. weapon_hands is the reason this can't simply be a per-weapon
+	// rule: every role carries it, so there is nothing left to allow.
+	bool AllowPlayerDropCommand(CBasePlayer* pPlayer) override { return false; }
 	const char* GetGameDescription() override { return "Crowbar Hunt"; }
 
 	// Broken brush entities have to survive until the next round reset can put

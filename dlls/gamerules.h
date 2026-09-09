@@ -165,6 +165,14 @@ public:
 	// can be put back without a level restart. See CBreakable::Die().
 	virtual bool ShouldPreserveBrokenEntities() { return false; }
 
+	// May a player throw a weapon on the ground with the "drop" command? Modes
+	// that hand out fixed loadouts have to say no: dropping is a way to put a
+	// weapon in the hands of someone who is not meant to have one, and to
+	// litter the map with items the mode never placed. This gates only the
+	// client command - server-side DropPlayerItem() calls are unaffected.
+	// See ClientCommand().
+	virtual bool AllowPlayerDropCommand(CBasePlayer* pPlayer) { return true; }
+
 	// Voice chat: lets a mode decide who hears whom (proximity chat, silencing
 	// the dead). Consulted before sv_alltalk, so a mode can be stricter than it.
 	virtual bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) { return true; }
