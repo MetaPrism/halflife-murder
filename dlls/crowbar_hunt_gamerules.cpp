@@ -8,6 +8,7 @@
 #include "game.h"
 #include "crowbar_hunt_gamerules.h"
 #include "crowbar_hunt_shared.h"
+#include "UserMessages.h"
 
 // Minimum number of connected players before a round will start.
 // TODO: expose as a cvar once there's a reason to tune it per server.
@@ -33,6 +34,11 @@ constexpr float CH_PUNISH_SPEED = 100.0f;
 // string because PM_Jump() has to read the same number the server does.
 constexpr const char* CH_PUNISH_JUMP_PERCENT = "50";
 constexpr const char* CH_NORMAL_JUMP_PERCENT = "100";
+
+// How long after a player spawns to send them the scoreboard title. Long enough
+// that a player spawning during the initial level load has a client DLL with its
+// user message hooks installed by the time it arrives.
+constexpr float CH_SERVERNAME_SEND_DELAY = 2.0f;
 
 namespace
 {
@@ -131,7 +137,10 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	m_flNextWaitingAnnounce = 0.0f;
 
 	for (int i = 0; i <= MAX_PLAYERS; i++)
+	{
 		m_playerRoles[i] = CHRole::Unassigned;
+		m_flSendServerName[i] = 0.0f;
+	}
 
 	ClearPunishments();
 
@@ -638,6 +647,7 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 	// normal movement the same frame. Punishment first: it decides the speed.
 	ServicePunishment(pPlayer);
 	UpdatePlayerSpeed(pPlayer);
+	ServiceServerNameSend(pPlayer);
 
 	// Catches anyone alive in a live round without a role: a mid-round joiner,
 	// or someone who connected during the countdown after AssignRoles() had
@@ -1097,6 +1107,8 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 	if (!pPlayer)
 		return;
 
+	m_flSendServerName[ENTINDEX(pPlayer->edict())] = gpGlobals->time + CH_SERVERNAME_SEND_DELAY;
+
 	// Deliberately not CHalfLifeMultiplay::PlayerSpawn(). That hands every
 	// spawning player a crowbar and a glock, and GiveNamedItem() delivers them
 	// by spawning a real world entity at the player's feet and touching them
@@ -1247,6 +1259,20 @@ void CHalfLifeCrowbarHunt::EnforceObserverForUnassigned(CBasePlayer* pPlayer) co
 
 	pPlayer->RemoveAllItems(false);
 	pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
+}
+
+void CHalfLifeCrowbarHunt::ServiceServerNameSend(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (m_flSendServerName[index] == 0.0f || gpGlobals->time < m_flSendServerName[index])
+		return;
+
+	m_flSendServerName[index] = 0.0f;
+
+	MESSAGE_BEGIN(MSG_ONE, gmsgServerName, NULL, pPlayer->edict());
+	WRITE_STRING(CVAR_GET_STRING("hostname"));
+	MESSAGE_END();
 }
 
 // Snapshot a player's body into a standalone entity, so it stays visible after

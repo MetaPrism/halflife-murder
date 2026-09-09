@@ -517,6 +517,7 @@ TeamFortressViewport::TeamFortressViewport(int x, int y, int wide, int tall) : P
 {
 	gViewPort = this;
 	m_iInitialized = false;
+	m_szServerName[0] = '\0'; // Initialize() only writes this when a name is pending
 	m_pTeamMenu = NULL;
 	m_pClassMenu = NULL;
 	m_pScoreBoard = NULL;

@@ -173,6 +173,12 @@ private:
 	// the spectator view to survive ClientPutInServer().
 	void EnforceObserverForUnassigned(CBasePlayer* pPlayer) const;
 
+	// Send the scoreboard title (the "hostname" cvar). Deferred out of
+	// PlayerSpawn() the same way: the base class sends it once from InitHUD(),
+	// which on a listen server runs before the client has hooked user messages
+	// at all, so that copy is dropped by the engine and never asked for again.
+	void ServiceServerNameSend(CBasePlayer* pPlayer);
+
 	// Leave a visible body behind at the point a player was killed.
 	static void LeaveCorpse(CBasePlayer* pPlayer);
 
@@ -190,6 +196,10 @@ private:
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
 	CHRole m_playerRoles[MAX_PLAYERS + 1];
+
+	// gpGlobals->time to send each player the scoreboard title, or 0 for nothing
+	// pending. Same indexing as m_playerRoles.
+	float m_flSendServerName[MAX_PLAYERS + 1];
 
 	// gpGlobals->time each punished player's penalty runs out, or 0 for no
 	// penalty. Same indexing as m_playerRoles, and cleared with it: the penalty
