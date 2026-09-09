@@ -260,11 +260,9 @@ void ScorePanel::Update()
 	int i;
 
 	// Set the title
-	if (gViewPort->m_szServerName)
+	if ('\0' != gViewPort->m_szServerName[0])
 	{
-		char sz[MAX_SERVERNAME_LENGTH + 16];
-		sprintf(sz, "%s", gViewPort->m_szServerName);
-		m_TitleLabel.setText(sz);
+		m_TitleLabel.setText(gViewPort->m_szServerName);
 	}
 
 	m_iRows = 0;

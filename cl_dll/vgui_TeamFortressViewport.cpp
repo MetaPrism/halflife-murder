@@ -65,6 +65,8 @@ int g_iUser1 = 0;
 int g_iUser2 = 0;
 int g_iUser3 = 0;
 
+char g_szPendingServerName[MAX_SERVERNAME_LENGTH] = "";
+
 // Scoreboard positions
 #define SBOARD_INDENT_X XRES(104)
 #define SBOARD_INDENT_Y YRES(40)
@@ -642,7 +644,15 @@ void TeamFortressViewport::Initialize()
 	g_iTeamNumber = 0;
 
 	strcpy(m_sMapName, "");
-	strcpy(m_szServerName, "");
+
+	// The server sends the server name exactly once per connection, and that can
+	// land before this viewport exists. Adopt whatever the message handler parked
+	// for us, and never clear it here: a later VidInit (video mode / renderer
+	// restart) would otherwise wipe it for good.
+	if ('\0' != g_szPendingServerName[0])
+	{
+		strcpy(m_szServerName, g_szPendingServerName);
+	}
 	for (int i = 0; i < 5; i++)
 	{
 		m_iValidClasses[i] = 0;
@@ -2025,6 +2035,8 @@ bool TeamFortressViewport::MsgFunc_ServerName(const char* pszName, int iSize, vo
 
 	strncpy(m_szServerName, READ_STRING(), sizeof(m_szServerName));
 	m_szServerName[sizeof(m_szServerName) - 1] = 0;
+
+	strcpy(g_szPendingServerName, m_szServerName);
 
 	return true;
 }

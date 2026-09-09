@@ -228,7 +228,14 @@ int __MsgFunc_ServerName(const char* pszName, int iSize, void* pbuf)
 {
 	if (gViewPort)
 		return static_cast<int>(gViewPort->MsgFunc_ServerName(pszName, iSize, pbuf));
-	return 0;
+
+	// On a listen server this message arrives before HUD_VidInit has created the
+	// viewport, and the server only ever sends it once, so dropping it here
+	// loses the name for the whole session.
+	BEGIN_READ(pbuf, iSize);
+	strncpy(g_szPendingServerName, READ_STRING(), sizeof(g_szPendingServerName));
+	g_szPendingServerName[sizeof(g_szPendingServerName) - 1] = '\0';
+	return 1;
 }
 
 int __MsgFunc_ScoreInfo(const char* pszName, int iSize, void* pbuf)

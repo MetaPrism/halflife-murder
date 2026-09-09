@@ -481,6 +481,10 @@ public:
 };
 
 //==============================================================================
+// The server sends the server name once, early enough that gViewPort may not
+// exist yet, so the message handler parks it here for the viewport to adopt.
+extern char g_szPendingServerName[MAX_SERVERNAME_LENGTH];
+
 class TeamFortressViewport : public Panel
 {
 private:
