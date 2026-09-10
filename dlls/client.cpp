@@ -658,7 +658,7 @@ void ClientUserInfoChanged(edict_t* pEntity, char* infobuffer)
 		// Set the name
 		g_engfuncs.pfnSetClientKeyValue(ENTINDEX(pEntity), infobuffer, "name", sName);
 
-		if (gpGlobals->maxClients > 1)
+		if (gpGlobals->maxClients > 1 && g_pGameRules->ShouldAnnounceNameChange())
 		{
 			char text[256];
 			sprintf(text, "* %s changed name to %s\n", STRING(pEntity->v.netname), g_engfuncs.pfnInfoKeyValue(infobuffer, "name"));

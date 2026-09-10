@@ -65,6 +65,17 @@ extern cvar_t ch_proxvoice;
 // picking a revolver back up. 0 disables the punishment entirely.
 extern cvar_t ch_punish_time;
 
+// Anonymous mode: every round, each player is given a random colour and a
+// random name off the names file, so nobody can be picked out of a round by
+// the name or the colours they usually play under. Their model choice is left
+// alone. 0 leaves everyone under their own name.
+extern cvar_t ch_anonymous;
+
+// Bot behaviour: 1 leaves fake clients standing still (they only exist to fill
+// out a round), 0 makes them wander in a straight line and pick a new direction
+// whenever they run into something.
+extern cvar_t bot_zombie;
+
 // Engine Cvars
 inline cvar_t* g_psv_gravity;
 inline cvar_t* g_psv_aim;

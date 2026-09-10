@@ -41,8 +41,42 @@ constexpr const char* CH_NORMAL_JUMP_PERCENT = "100";
 // user message hooks installed by the time it arrives.
 constexpr float CH_SERVERNAME_SEND_DELAY = 2.0f;
 
+// Where anonymous mode reads its names from, relative to the mod directory:
+// one name per line, blank lines and // comments ignored. Keeping the list out
+// of the binary lets a server set its own flavour without a rebuild.
+constexpr const char* CH_ANON_NAME_FILE = "ch_anonnames.txt";
+
+constexpr int CH_MAX_ANON_NAMES = 64;
+
 namespace
 {
+// Used when the names file is missing or has nothing usable in it. Deliberately
+// flat: a name that reads as a joke says something about whoever is wearing it,
+// which is the one thing anonymous mode exists to stop.
+const char* const g_szDefaultAnonNames[] = {
+	"Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel",
+	"India", "Juliet", "Kilo", "Lima", "Mike", "November", "Oscar", "Papa",
+};
+
+char g_szAnonNames[CH_MAX_ANON_NAMES][CH_MAX_ANON_NAME];
+int  g_numAnonNames = 0;
+
+// Fisher-Yates over 0..count-1, so a deal can walk the result and hand out
+// each entry once.
+void ShuffledOrder(int* pOrder, int count)
+{
+	for (int i = 0; i < count; i++)
+		pOrder[i] = i;
+
+	for (int i = count - 1; i > 0; i--)
+	{
+		const int j = RANDOM_LONG(0, i);
+		const int tmp = pOrder[i];
+		pOrder[i] = pOrder[j];
+		pOrder[j] = tmp;
+	}
+}
+
 // Map entities whose spawn state is snapshotted and restored between rounds.
 // Everything here is either a brush that can be destroyed or one that can be
 // left sitting in the wrong position (open door, pushed-in button).
@@ -92,8 +126,11 @@ bool ClassnameInList(const char* pszClassname, const char* const (&list)[SIZE])
 
 // A player's chosen colours live in their userinfo, not on their entity. Read
 // one out and clamp it into the byte the studio renderer's remap expects.
-// StudioDrawPlayer() clamps to 360 instead, so a hue above 255 - the top of the
-// blue/purple end - is as close as an entity colormap can get to it.
+//
+// 0..255 is the whole colour wheel, not degrees - the engine spreads it over
+// all 360 - so this clamp costs nothing: every colour a player can pick fits
+// in the byte a corpse's colormap carries. StudioDrawPlayer() clamps to 360
+// instead, which is just the engine's own range check showing through.
 int PlayerRemapColor(CBasePlayer* pPlayer, const char* pszKey)
 {
 	const int color = atoi(g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict()), pszKey));
@@ -137,13 +174,10 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	// Announce straight away the first time we tick in WaitingForPlayers.
 	m_flNextWaitingAnnounce = 0.0f;
 
-	for (int i = 0; i <= MAX_PLAYERS; i++)
-	{
-		m_playerRoles[i] = CHRole::Unassigned;
-		m_flSendServerName[i] = 0.0f;
-	}
+	m_bAnonActive = false;
 
-	ClearPunishments();
+	for (int i = 0; i <= MAX_PLAYERS; i++)
+		ResetPlayerSlot(i);
 
 	// CHalfLifeMultiplay's constructor already called RefreshSkillData(), but it
 	// did so while the object was still a CHalfLifeMultiplay - virtual dispatch
@@ -529,6 +563,11 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 	// hand somebody a crippled Killer through no fault of their own.
 	ClearPunishments();
 
+	// New round, new faces. Deliberately not done in ResetForNextRound(): the
+	// disguises stay on between rounds so nobody's real name flashes up on the
+	// scoreboard in the gap.
+	AssignAnonIdentities();
+
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
 		CBasePlayer* pPlayer = GetPlayerByIndex(i);
@@ -618,6 +657,351 @@ void CHalfLifeCrowbarHunt::AnnounceRole(CBasePlayer* pPlayer, CHRole role) const
 	parms.channel = 1;
 
 	UTIL_HudMessage(pPlayer, parms, pszText);
+}
+
+// ---------------------------------------------------------------------------
+// Anonymous mode
+//
+// Role secrecy only goes so far while everyone is still playing under the name
+// and colours they always play under: "the orange one is always the one who
+// rushes" is a read on the Killer that the mode never meant to hand out. With
+// ch_anonymous on, every round deals each player a colour off g_CHAnonColors
+// and a name off the names file, and both are worn until the next deal.
+//
+// The disguise is a userinfo override, not an entity one, and that is what
+// makes it reach everything: the studio renderer remaps a player model from
+// the engine's copy of topcolor/bottomcolor, LeaveCorpse() builds a corpse's
+// colormap out of the same two keys, and the scoreboard, chat and voice HUD
+// all read the name key. Nothing else has to be taught about it.
+//
+// The player's model choice is deliberately left alone. It is a louder tell
+// than colour ever was, but it is also the one piece of a player's appearance
+// they picked on purpose, and taking it away costs more than it buys.
+// ---------------------------------------------------------------------------
+void CHalfLifeCrowbarHunt::LoadAnonNames()
+{
+	g_numAnonNames = 0;
+
+	int   fileSize = 0;
+	byte* pMemFile = g_engfuncs.pfnLoadFileForMe(CH_ANON_NAME_FILE, &fileSize);
+
+	if (pMemFile)
+	{
+		int pos = 0;
+
+		while (pos < fileSize && g_numAnonNames < CH_MAX_ANON_NAMES)
+		{
+			// Take one line, minus its leading whitespace.
+			while (pos < fileSize && (pMemFile[pos] == ' ' || pMemFile[pos] == '\t'))
+				pos++;
+
+			int len = 0;
+			char szLine[CH_MAX_ANON_NAME];
+
+			while (pos < fileSize && pMemFile[pos] != '\n' && pMemFile[pos] != '\r' && pMemFile[pos] != '\0')
+			{
+				if (len < CH_MAX_ANON_NAME - 1)
+					szLine[len++] = static_cast<char>(pMemFile[pos]);
+
+				pos++;
+			}
+
+			// Past the line terminator, whichever flavour it is. A stray NUL
+			// counts as one: the read above stops on it, so leaving it here
+			// would mean no loop advances and the parse never ends.
+			while (pos < fileSize && (pMemFile[pos] == '\n' || pMemFile[pos] == '\r' || pMemFile[pos] == '\0'))
+				pos++;
+
+			// Trailing whitespace would show up in the name as-is.
+			while (len > 0 && (szLine[len - 1] == ' ' || szLine[len - 1] == '\t'))
+				len--;
+
+			szLine[len] = '\0';
+
+			if (len == 0 || (len >= 2 && szLine[0] == '/' && szLine[1] == '/'))
+				continue;
+
+			// A '%' in a player name is a format specifier by the time it
+			// reaches a chat line; ClientUserInfoChanged() scrubs the ones
+			// players type, so the file gets the same treatment.
+			for (int i = 0; i < len; i++)
+			{
+				if (szLine[i] == '%')
+					szLine[i] = ' ';
+			}
+
+			strcpy(g_szAnonNames[g_numAnonNames], szLine);
+			g_numAnonNames++;
+		}
+
+		FREE_FILE(pMemFile);
+	}
+
+	if (g_numAnonNames == 0)
+	{
+		const int count = sizeof(g_szDefaultAnonNames) / sizeof(g_szDefaultAnonNames[0]);
+
+		for (int i = 0; i < count && i < CH_MAX_ANON_NAMES; i++)
+		{
+			strncpy(g_szAnonNames[i], g_szDefaultAnonNames[i], CH_MAX_ANON_NAME - 1);
+			g_szAnonNames[i][CH_MAX_ANON_NAME - 1] = '\0';
+			g_numAnonNames++;
+		}
+	}
+}
+
+void CHalfLifeCrowbarHunt::StashRealIdentity(CBasePlayer* pPlayer, const char* pszInfoBuffer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS || m_realTopColor[index] >= 0)
+		return;
+
+	// Cast away const only because the engine's accessor is not const-correct;
+	// InfoKeyValue does not write to the buffer.
+	char* infobuffer = const_cast<char*>(pszInfoBuffer);
+
+	strncpy(m_szRealName[index], g_engfuncs.pfnInfoKeyValue(infobuffer, "name"), CH_MAX_ANON_NAME - 1);
+	m_szRealName[index][CH_MAX_ANON_NAME - 1] = '\0';
+
+	m_realTopColor[index] = atoi(g_engfuncs.pfnInfoKeyValue(infobuffer, "topcolor"));
+	m_realBottomColor[index] = atoi(g_engfuncs.pfnInfoKeyValue(infobuffer, "bottomcolor"));
+
+	if (m_realTopColor[index] < 0)
+		m_realTopColor[index] = 0;
+	if (m_realBottomColor[index] < 0)
+		m_realBottomColor[index] = 0;
+}
+
+void CHalfLifeCrowbarHunt::ApplyAnonIdentity(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS || m_anonColor[index] < 0)
+		return;
+
+	char* infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict());
+	char  szValue[16];
+
+	snprintf(szValue, sizeof(szValue), "%d", g_CHAnonColors[m_anonColor[index]].hue);
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "topcolor", szValue);
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "bottomcolor", szValue);
+
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "name", m_szAnonName[index]);
+
+	// The name key is what other clients see; pev->netname is what server-side
+	// code reads, including our own DeathNotice() chat line. The engine keeps
+	// the two in step on its own when a client sends userinfo, but not when the
+	// DLL writes the key from underneath it.
+	pPlayer->pev->netname = ALLOC_STRING(m_szAnonName[index]);
+}
+
+void CHalfLifeCrowbarHunt::DealAnonIdentity(CBasePlayer* pPlayer, int colorIndex, const char* pszName)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return;
+
+	StashRealIdentity(pPlayer, g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict()));
+
+	m_anonColor[index] = colorIndex;
+	strncpy(m_szAnonName[index], pszName, CH_MAX_ANON_NAME - 1);
+	m_szAnonName[index][CH_MAX_ANON_NAME - 1] = '\0';
+
+	ApplyAnonIdentity(pPlayer);
+}
+
+void CHalfLifeCrowbarHunt::AssignAnonIdentities()
+{
+	if (ch_anonymous.value == 0)
+	{
+		if (m_bAnonActive)
+			ClearAnonIdentities();
+
+		return;
+	}
+
+	if (g_numAnonNames == 0)
+		LoadAnonNames();
+
+	// Dealt without replacement: two players in the same colour under the same
+	// name is worse than no disguise at all, because it reads as a bug rather
+	// than as two strangers. Past the end of either table the order wraps and
+	// duplicates are the best that can be done.
+	int colorOrder[CH_NUM_ANON_COLORS];
+	int nameOrder[CH_MAX_ANON_NAMES];
+
+	ShuffledOrder(colorOrder, CH_NUM_ANON_COLORS);
+	ShuffledOrder(nameOrder, g_numAnonNames);
+
+	int dealt = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (!pPlayer)
+			continue;
+
+		DealAnonIdentity(pPlayer,
+			colorOrder[dealt % CH_NUM_ANON_COLORS],
+			g_szAnonNames[nameOrder[dealt % g_numAnonNames]]);
+
+		dealt++;
+	}
+
+	m_bAnonActive = true;
+	SendAnonColors(nullptr);
+}
+
+void CHalfLifeCrowbarHunt::ClearAnonIdentities()
+{
+	// Before the sends, so ShouldAnnounceNameChange() lets the engine talk
+	// again and SendAnonColors() reports everyone as uncoloured.
+	m_bAnonActive = false;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		m_anonColor[i] = -1;
+
+		if (!pPlayer || m_realTopColor[i] < 0)
+			continue;
+
+		char* infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict());
+		char  szValue[16];
+
+		snprintf(szValue, sizeof(szValue), "%d", m_realTopColor[i]);
+		g_engfuncs.pfnSetClientKeyValue(i, infobuffer, "topcolor", szValue);
+		snprintf(szValue, sizeof(szValue), "%d", m_realBottomColor[i]);
+		g_engfuncs.pfnSetClientKeyValue(i, infobuffer, "bottomcolor", szValue);
+
+		if (m_szRealName[i][0] != '\0')
+		{
+			g_engfuncs.pfnSetClientKeyValue(i, infobuffer, "name", m_szRealName[i]);
+			pPlayer->pev->netname = ALLOC_STRING(m_szRealName[i]);
+		}
+	}
+
+	SendAnonColors(nullptr);
+}
+
+void CHalfLifeCrowbarHunt::SendAnonColors(CBasePlayer* pTo) const
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		if (!GetPlayerByIndex(i))
+			continue;
+
+		const int color = m_bAnonActive ? m_anonColor[i] : -1;
+
+		if (pTo)
+			MESSAGE_BEGIN(MSG_ONE, gmsgCHAnon, nullptr, pTo->pev);
+		else
+			MESSAGE_BEGIN(MSG_ALL, gmsgCHAnon, nullptr);
+
+		WRITE_BYTE(i);
+		WRITE_BYTE(color < 0 ? CH_ANON_NONE : color);
+
+		// The scoreboard shows who is actually in the server, which the name
+		// key can no longer say once it is carrying a disguise. This is the
+		// only route the real name has to a client - and it is deliberately
+		// the only place a client is allowed to use it. Empty while nobody is
+		// disguised, which is the client's cue to go back to the name key.
+		WRITE_STRING(color < 0 ? "" : m_szRealName[i]);
+
+		MESSAGE_END();
+	}
+}
+
+// A client that sends userinfo is sending their own name and colours, which is
+// exactly what anonymous mode is covering up. Stamp the disguise back on.
+void CHalfLifeCrowbarHunt::ClientUserInfoChanged(CBasePlayer* pPlayer, char* infobuffer)
+{
+	if (!pPlayer)
+		return;
+
+	// The first userinfo we ever see from a player is the only chance to read
+	// their real name and colours off the wire, so take it whether or not
+	// anonymous mode is on right now - the cvar can go on mid-map.
+	StashRealIdentity(pPlayer, infobuffer);
+
+	if (m_bAnonActive)
+		ApplyAnonIdentity(pPlayer);
+}
+
+// ---------------------------------------------------------------------------
+// Per-slot state
+//
+// Everything this mode knows about a player is held in an array indexed by
+// client slot, and GoldSrc never frees a player edict or a client slot: a slot
+// that comes free is handed straight to the next client to connect, carrying
+// whatever the last occupant left in it.
+//
+// That has now caused three separate bugs, so the rule is: every array indexed
+// by ENTINDEX() is cleared here and nowhere else, and a new one is not finished
+// until it has a line in this function. Adding an array without touching this
+// is the same class of mistake as adding a member without a m_SaveData entry -
+// it works until the day something reuses the slot.
+//
+// The worst of the three was a stale role. A player joining mid-round is meant
+// to read as Unassigned so PlayerSpawn() sits them out as an observer; if the
+// slot's last occupant was a Survivor they spawned in live instead, and - being
+// counted as a live Survivor by CheckRoundWinConditions() - also stopped the
+// Killer from ever winning the round they were never part of. Reconnecting bots
+// hit it every time, a kicked bot freeing a slot the next one takes back.
+//
+// Note this is *not* the same wipe AssignRoles() and ResetForNextRound() do
+// between rounds: those clear roles only, and deliberately leave the anonymous
+// identity alone so nobody's real name flashes up in the gap.
+// ---------------------------------------------------------------------------
+void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
+{
+	if (index < 0 || index > MAX_PLAYERS)
+		return;
+
+	m_playerRoles[index] = CHRole::Unassigned;
+	m_flPunishEndTime[index] = 0.0f;
+	m_flSendServerName[index] = 0.0f;
+
+	m_anonColor[index] = -1;
+	m_szAnonName[index][0] = '\0';
+	m_szRealName[index][0] = '\0';
+	m_realTopColor[index] = -1;
+	m_realBottomColor[index] = -1;
+}
+
+// Wiped at both ends of an occupancy rather than just on the way out, so a slot
+// is clean even if the last tenant left by a route that never reached
+// ClientDisconnected().
+bool CHalfLifeCrowbarHunt::ClientConnected(edict_t* pEntity, const char* pszName, const char* pszAddress, char szRejectReason[128])
+{
+	if (pEntity)
+		ResetPlayerSlot(ENTINDEX(pEntity));
+
+	return CHalfLifeMultiplay::ClientConnected(pEntity, pszName, pszAddress, szRejectReason);
+}
+
+void CHalfLifeCrowbarHunt::ClientDisconnected(edict_t* pClient)
+{
+	// First: the base class writes the disconnect log line, and it reads the
+	// player's name to do it.
+	CHalfLifeMultiplay::ClientDisconnected(pClient);
+
+	if (!pClient)
+		return;
+
+	ResetPlayerSlot(ENTINDEX(pClient));
+
+	// Not part of the slot wipe above, because it is the engine's field rather
+	// than one of ours: GetPlayerByIndex() decides whether a slot still has
+	// somebody on the end of it by FL_CLIENT plus a non-empty name, and the
+	// edict is never freed. Clearing the name makes that answer ours rather
+	// than something we hope the engine did on its way out - and it is the
+	// count built on it that decides whether a round can still go on.
+	pClient->v.netname = 0;
 }
 
 // CHalfLifeMultiplay::RefreshSkillData() runs after the skill.cfg cvars have
@@ -1108,7 +1492,23 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 	if (!pPlayer)
 		return;
 
-	m_flSendServerName[ENTINDEX(pPlayer->edict())] = gpGlobals->time + CH_SERVERNAME_SEND_DELAY;
+	const int index = ENTINDEX(pPlayer->edict());
+
+	m_flSendServerName[index] = gpGlobals->time + CH_SERVERNAME_SEND_DELAY;
+
+	// Somebody who connected after this round's deal still needs covering: they
+	// would otherwise sit on the scoreboard under their own name for the rest
+	// of the round. Picked at random rather than dealt, so it can collide with
+	// a colour already in play - they are spectating until the next deal, where
+	// they are included properly.
+	if (m_bAnonActive && m_anonColor[index] < 0 && g_numAnonNames > 0)
+	{
+		DealAnonIdentity(pPlayer,
+			RANDOM_LONG(0, CH_NUM_ANON_COLORS - 1),
+			g_szAnonNames[RANDOM_LONG(0, g_numAnonNames - 1)]);
+
+		SendAnonColors(nullptr);
+	}
 
 	// Deliberately not CHalfLifeMultiplay::PlayerSpawn(). That hands every
 	// spawning player a crowbar and a glock, and GiveNamedItem() delivers them
@@ -1274,6 +1674,11 @@ void CHalfLifeCrowbarHunt::ServiceServerNameSend(CBasePlayer* pPlayer)
 	MESSAGE_BEGIN(MSG_ONE, gmsgServerName, NULL, pPlayer->edict());
 	WRITE_STRING(CVAR_GET_STRING("hostname"));
 	MESSAGE_END();
+
+	// Anonymous colours ride the same delay for the same reason: a client that
+	// has not hooked its user messages yet drops them. A joiner who misses this
+	// send still picks everything up at the next round's deal.
+	SendAnonColors(pPlayer);
 }
 
 // Snapshot a player's body into a standalone entity, so it stays visible after
@@ -1436,11 +1841,19 @@ void CHalfLifeCrowbarHunt::DeathNotice(CBasePlayer* pVictim, entvars_t* pKiller,
 
 		if (pAttacker && GetPlayerRole(pAttacker) != CHRole::Killer)
 		{
+			// Sent as SayText rather than a plain print so the name is drawn in
+			// the shooter's own colour: saytext.cpp only colours a name when
+			// the line opens with \2, and it looks the colour up per client
+			// index. Under ch_anonymous that is the colour they are wearing,
+			// which is the only handle anyone in the room has on who this was.
 			char szText[128];
-			snprintf(szText, sizeof(szText), "%s killed an innocent survivor.\n",
+			snprintf(szText, sizeof(szText), "\2%s killed an innocent survivor.\n",
 				STRING(pAttacker->pev->netname));
 
-			UTIL_ClientPrintAll(HUD_PRINTTALK, szText);
+			MESSAGE_BEGIN(MSG_ALL, gmsgSayText, nullptr);
+			WRITE_BYTE(pAttacker->entindex());
+			WRITE_STRING(szText);
+			MESSAGE_END();
 		}
 	}
 

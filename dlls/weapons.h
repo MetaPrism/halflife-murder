@@ -543,6 +543,9 @@ public:
 	int iItemSlot() override { return 1; }
 	void EXPORT SwingAgain();
 	void EXPORT Smack();
+#ifndef CLIENT_DLL
+	void EXPORT RemoveAfterThrow(); // Crowbar Hunt: strip the thrown bar
+#endif
 	bool GetItemInfo(ItemInfo* p) override;
 
 	void PrimaryAttack() override;

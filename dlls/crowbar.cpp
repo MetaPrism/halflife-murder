@@ -423,13 +423,37 @@ void CCrowbar::SecondaryAttack()
 	// retrieve it. Deferred a tick because RemovePlayerItem() holsters the active
 	// item, which is the call we are inside of right now.
 	m_pPlayer->ClearWeaponBit(m_iId);
-	SetThink(&CCrowbar::DestroyItem);
+	SetThink(&CCrowbar::RemoveAfterThrow);
 	pev->nextthink = gpGlobals->time + 0.1;
 #endif
 
 	m_flNextPrimaryAttack = m_flNextSecondaryAttack = GetNextAttackDelay(0.5);
 }
 
+
+#ifndef CLIENT_DLL
+
+void CCrowbar::RemoveAfterThrow()
+{
+	CBasePlayer* pPlayer = m_pPlayer;
+
+	if (pPlayer)
+	{
+		pPlayer->RemovePlayerItem(this);
+
+		// RemovePlayerItem() leaves the player holding literally nothing: no
+		// active item at all. That reads wrong in two ways - they keep the
+		// crowbar's third-person stance, and with m_pActiveItem null
+		// FShouldSwitchWeapon() auto-equips the bar the instant they walk back
+		// over it. Empty hands fixes both, and since hands outweigh the crowbar
+		// picking the bar back up no longer switches for them either.
+		pPlayer->SelectItem("weapon_hands");
+	}
+
+	Kill();
+}
+
+#endif
 
 void CCrowbar::Smack()
 {

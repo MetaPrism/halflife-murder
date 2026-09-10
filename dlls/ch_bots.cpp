@@ -5,6 +5,7 @@
 #include "client.h"
 #include "cdll_dll.h" // MAX_PLAYERS
 #include "gamerules.h"
+#include "game.h"
 #include "ch_bots.h"
 
 // A bot is nothing more than an engine fake client that the game DLL connects
@@ -22,6 +23,27 @@
 static bool g_bIsBot[MAX_PLAYERS + 1] = {};
 
 static float g_flLastBotMoveTime = 0;
+
+// Wander state, only used while bot_zombie is 0. A bot walks along one yaw
+// until it stops making progress - it walked into a wall, a door or another
+// player - and then picks a new one. Progress is sampled on an interval rather
+// than per frame, because a single frame's worth of movement is too small to
+// tell apart from being stuck.
+static float g_flBotYaw[MAX_PLAYERS + 1] = {};
+static Vector g_vecBotLastOrigin[MAX_PLAYERS + 1] = {};
+static float g_flBotNextProgressCheck[MAX_PLAYERS + 1] = {};
+
+// How often a bot's progress is sampled, and how far it has to have travelled
+// in that time to count as still moving.
+constexpr float BOT_PROGRESS_INTERVAL = 0.3f;
+constexpr float BOT_PROGRESS_DISTANCE = 16.0f;
+
+static void BotPickNewDirection(int index, CBaseEntity* pPlayer)
+{
+	g_flBotYaw[index] = RANDOM_FLOAT(-180, 180);
+	g_vecBotLastOrigin[index] = pPlayer->pev->origin;
+	g_flBotNextProgressCheck[index] = gpGlobals->time + BOT_PROGRESS_INTERVAL;
+}
 
 // Picks a name no connected player is already using, so the engine doesn't
 // rename the fake client behind our back.
@@ -118,6 +140,10 @@ static void BotAdd()
 
 	g_bIsBot[index] = true;
 
+	g_flBotYaw[index] = RANDOM_FLOAT(-180, 180);
+	g_vecBotLastOrigin[index] = pEdict->v.origin;
+	g_flBotNextProgressCheck[index] = gpGlobals->time + BOT_PROGRESS_INTERVAL;
+
 	ALERT(at_console, "Added bot \"%s\"\n", name);
 }
 
@@ -177,8 +203,36 @@ void BotThink()
 		if (!pPlayer || !FBitSet(pPlayer->pev->flags, FL_FAKECLIENT))
 			continue;
 
-		// An empty move: no buttons, no motion. It exists purely so the engine
-		// runs player physics on a client that never sends usercmds.
-		g_engfuncs.pfnRunPlayerMove(pPlayer->edict(), pPlayer->pev->v_angle, 0, 0, 0, 0, 0, msec);
+		// A live bot with bot_zombie off walks: everything else gets an empty
+		// move, which exists purely so the engine runs player physics on a
+		// client that never sends usercmds.
+		if (0 != bot_zombie.value || !pPlayer->IsAlive())
+		{
+			g_engfuncs.pfnRunPlayerMove(pPlayer->edict(), pPlayer->pev->v_angle, 0, 0, 0, 0, 0, msec);
+			continue;
+		}
+
+		if (gpGlobals->time >= g_flBotNextProgressCheck[i])
+		{
+			if ((pPlayer->pev->origin - g_vecBotLastOrigin[i]).Length2D() < BOT_PROGRESS_DISTANCE)
+			{
+				BotPickNewDirection(i, pPlayer);
+			}
+			else
+			{
+				g_vecBotLastOrigin[i] = pPlayer->pev->origin;
+				g_flBotNextProgressCheck[i] = gpGlobals->time + BOT_PROGRESS_INTERVAL;
+			}
+		}
+
+		const Vector vecAngles(0, g_flBotYaw[i], 0);
+
+		// Face where it is going, so other players see the bot turn.
+		pPlayer->pev->angles = vecAngles;
+		pPlayer->pev->v_angle = vecAngles;
+
+		const float flSpeed = pPlayer->pev->maxspeed > 0 ? pPlayer->pev->maxspeed : 240.0f;
+
+		g_engfuncs.pfnRunPlayerMove(pPlayer->edict(), vecAngles, flSpeed, 0, 0, 0, 0, msec);
 	}
 }

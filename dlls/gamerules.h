@@ -98,6 +98,10 @@ public:
 	virtual bool ClientCommand(CBasePlayer* pPlayer, const char* pcmd) { return false; } // handles the user commands;  returns true if command handled properly
 	virtual void ClientUserInfoChanged(CBasePlayer* pPlayer, char* infobuffer) {}		 // the player has changed userinfo;  can change it now
 
+	// A name change is announced to the whole server by name. A mode that hides
+	// who is who has to be able to stop that from naming both halves at once.
+	virtual bool ShouldAnnounceNameChange() { return true; }
+
 	// Client kills/scoring
 	virtual int IPointsForKill(CBasePlayer* pAttacker, CBasePlayer* pKilled) = 0;					// how many points do I award whoever kills this player?
 	virtual void PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor) = 0; // Called each time a player dies

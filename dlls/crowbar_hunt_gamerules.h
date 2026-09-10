@@ -15,6 +15,7 @@ a deathmatch server.
 
 #include "cdll_dll.h"	// MAX_PLAYERS
 #include "gamerules.h" // CHalfLifeMultiplay - reuse its respawn/HUD plumbing
+#include "crowbar_hunt_shared.h" // the anonymous-mode colour table
 
 // Role a player currently holds for the round
 enum class CHRole
@@ -126,6 +127,19 @@ public:
 	// This is where a shot at anyone but the Killer is caught and charged for.
 	bool FPlayerCanTakeDamage(CBasePlayer* pPlayer, CBaseEntity* pAttacker) override;
 
+	// Anonymous mode has to have the last word on a player's name and colours:
+	// a player who retypes either mid-round would otherwise hand the room a
+	// free read on who they are.
+	void ClientUserInfoChanged(CBasePlayer* pPlayer, char* infobuffer) override;
+
+	// Half-Life would announce "* Red changed name to Dave" to everyone the
+	// moment the engine put a player's real name back on them.
+	bool ShouldAnnounceNameChange() override { return !m_bAnonActive; }
+
+	// Both ends of an occupancy wipe the slot - see ResetPlayerSlot().
+	bool ClientConnected(edict_t* pEntity, const char* pszName, const char* pszAddress, char szRejectReason[128]) override;
+	void ClientDisconnected(edict_t* pClient) override;
+
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
 	bool        IsCoOp() override { return false; }
@@ -166,6 +180,12 @@ private:
 	void        ResetMapEntities(); // put the world back the way the map loaded
 	static void RemoveRoundLitter(); // gibs, corpsebags, live ordnance, map guns
 
+	// --- per-slot state ---
+	// Forget everything this mode knows about one client slot. Every array
+	// below indexed by ENTINDEX() must be cleared here and nowhere else - see
+	// the comment on the implementation for why that matters.
+	void ResetPlayerSlot(int index);
+
 	// --- role management ---
 	void   AssignRoles();
 	void   GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role);
@@ -175,6 +195,35 @@ private:
 
 	// Is a weapon classname one this role is allowed to carry?
 	static bool RoleCanCarryWeapon(CHRole role, const char* pszWeaponName);
+
+	// --- anonymous mode ---
+	// Deal every connected player a fresh colour and name for the round, or
+	// take the disguises off if the cvar has since been turned off. Called from
+	// AssignRoles(), so identities re-roll on exactly the round boundary roles
+	// do - a colour that survived into the next round would be a name.
+	void AssignAnonIdentities();
+
+	// Give one slot an identity and push it out over their userinfo.
+	void DealAnonIdentity(CBasePlayer* pPlayer, int colorIndex, const char* pszName);
+
+	// Re-stamp a slot's dealt identity over whatever the client just sent.
+	void ApplyAnonIdentity(CBasePlayer* pPlayer);
+
+	// Put everyone's own name and colours back.
+	void ClearAnonIdentities();
+
+	// Remember what a player really looks like, once, so ClearAnonIdentities()
+	// has something to put back. Reading it any later than the first userinfo
+	// we see would just read our own disguise back.
+	void StashRealIdentity(CBasePlayer* pPlayer, const char* pszInfoBuffer);
+
+	// Tell clients which colour to draw each player's name in. A null pTo
+	// broadcasts to everyone.
+	void SendAnonColors(CBasePlayer* pTo) const;
+
+	// Fill the name pool from the names file, falling back to the built-in
+	// list if it is missing or empty.
+	static void LoadAnonNames();
 
 	// --- player iteration ---
 	// Returns the connected player in slot "index" (1..maxClients), or null.
@@ -228,6 +277,21 @@ private:
 	// penalty. Same indexing as m_playerRoles, and cleared with it: the penalty
 	// is a cost paid inside one round, not something carried into the next.
 	float m_flPunishEndTime[MAX_PLAYERS + 1];
+
+	// Anonymous mode state, all indexed like m_playerRoles.
+	//
+	// m_bAnonActive is what everything else keys off: identities are applied
+	// right now. It is not the same as the cvar being on - the cvar can be
+	// flipped mid-round, and the disguises only come off at the next deal.
+	bool m_bAnonActive;
+	int  m_anonColor[MAX_PLAYERS + 1]; // index into g_CHAnonColors, -1 for none
+	char m_szAnonName[MAX_PLAYERS + 1][CH_MAX_ANON_NAME];
+
+	// What the player actually looks like, kept so it can be given back.
+	// m_realTopColor < 0 means nothing has been stashed for this slot yet.
+	char m_szRealName[MAX_PLAYERS + 1][CH_MAX_ANON_NAME];
+	int  m_realTopColor[MAX_PLAYERS + 1];
+	int  m_realBottomColor[MAX_PLAYERS + 1];
 
 	// Spawn-time state of every resettable map entity, taken once on the first
 	// frame after the map has finished spawning its entities.

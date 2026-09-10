@@ -1,0 +1,36 @@
+// Crowbar Hunt anonymous mode (ch_anonymous 1) name pool.
+//
+// One name per line, up to 31 characters and 64 names. Blank lines and lines
+// starting with // are ignored. Each round deals every player one of these
+// names and one of the colours in game_shared/crowbar_hunt_shared.h.
+//
+// Goes in the mod directory, next to delta.lst. If it is missing or empty the
+// server falls back to a built-in NATO-alphabet list.
+//
+// Keep them flat. A name that reads as a joke says something about whoever is
+// wearing it, which is the one thing anonymous mode exists to stop.
+
+Ash
+Birch
+Cedar
+Dogwood
+Elm
+Fir
+Ginkgo
+Hazel
+Ironwood
+Juniper
+Katsu
+Larch
+Maple
+Nettle
+Olive
+Poplar
+Quince
+Rowan
+Spruce
+Teak
+Umber
+Vine
+Willow
+Yew

@@ -23,6 +23,7 @@
 #include <stdio.h>
 
 #include "vgui_TeamFortressViewport.h"
+#include "crowbar_hunt_shared.h"
 
 DECLARE_MESSAGE(m_DeathNotice, DeathMsg);
 
@@ -52,8 +53,71 @@ float g_ColorGreen[3] = {0.6, 1.0, 0.6};
 float g_ColorYellow[3] = {1.0, 0.7, 0.0};
 float g_ColorGrey[3] = {0.8, 0.8, 0.8};
 
+// Crowbar Hunt anonymous mode: the colour index each player is wearing this
+// round, or CH_ANON_NONE for none. Kept here because GetClientColor() is the
+// one place every name colour in the HUD comes from - chat, the status bar,
+// the spectator overlay and the scoreboard all end up here - so colouring a
+// name to match the model a player is wearing is a change to this function
+// alone.
+static int g_CHAnonColorIndex[MAX_PLAYERS + 1];
+
+// The name a disguised player is really playing under, empty when they are not
+// disguised. Only the scoreboard is allowed to read this: it says who is in the
+// server, which the name key can no longer answer once it carries a disguise.
+// Anywhere a name appears next to a player - chat, the voice HUD, the status
+// bar - has to keep showing the disguise or the mode is pointless.
+static char g_szCHRealName[MAX_PLAYERS + 1][CH_MAX_ANON_NAME];
+
+static void ClearCHAnonColors()
+{
+	for (int i = 0; i <= MAX_PLAYERS; i++)
+	{
+		g_CHAnonColorIndex[i] = CH_ANON_NONE;
+		g_szCHRealName[i][0] = '\0';
+	}
+}
+
+const char* GetCHRealName(int clientIndex)
+{
+	if (clientIndex < 0 || clientIndex > MAX_PLAYERS || g_szCHRealName[clientIndex][0] == '\0')
+		return NULL;
+
+	return g_szCHRealName[clientIndex];
+}
+
+int __MsgFunc_CHAnon(const char* pszName, int iSize, void* pbuf)
+{
+	BEGIN_READ(pbuf, iSize);
+
+	const int index = READ_BYTE();
+	const int color = READ_BYTE();
+	const char* pszReal = READ_STRING();
+
+	if (index >= 0 && index <= MAX_PLAYERS)
+	{
+		g_CHAnonColorIndex[index] = color;
+
+		strncpy(g_szCHRealName[index], pszReal ? pszReal : "", CH_MAX_ANON_NAME - 1);
+		g_szCHRealName[index][CH_MAX_ANON_NAME - 1] = '\0';
+	}
+
+	return 1;
+}
+
 float* GetClientColor(int clientIndex)
 {
+	if (clientIndex >= 0 && clientIndex <= MAX_PLAYERS)
+	{
+		const int anon = g_CHAnonColorIndex[clientIndex];
+
+		// The table is shared with the server, which picked this entry and
+		// remapped the player's model to the same hue. Returned by pointer
+		// into the table itself: callers here hold the pointer across frames,
+		// so a shared scratch buffer would repaint older lines.
+		if (anon >= 0 && anon < CH_NUM_ANON_COLORS)
+			return g_CHAnonColors[anon].rgb;
+	}
+
 	switch (g_PlayerExtraInfo[clientIndex].teamnumber)
 	{
 	case 1:
@@ -79,6 +143,9 @@ bool CHudDeathNotice::Init()
 	gHUD.AddHudElem(this);
 
 	HOOK_MESSAGE(DeathMsg);
+	HOOK_MESSAGE(CHAnon);
+
+	ClearCHAnonColors();
 
 	CVAR_CREATE("hud_deathnotice_time", "6", FCVAR_ARCHIVE);
 
@@ -89,6 +156,10 @@ bool CHudDeathNotice::Init()
 void CHudDeathNotice::InitHUDData()
 {
 	memset(rgDeathNoticeList, 0, sizeof(rgDeathNoticeList));
+
+	// Colours belong to the round they were dealt in; the server sends a fresh
+	// set on the next deal and to every player as they spawn.
+	ClearCHAnonColors();
 }
 
 

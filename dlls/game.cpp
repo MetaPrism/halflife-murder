@@ -470,6 +470,10 @@ cvar_t ch_proxvoice = {"ch_proxvoice", "0", FCVAR_SERVER};
 
 cvar_t ch_punish_time = {"ch_punish_time", "20", FCVAR_SERVER};
 
+cvar_t ch_anonymous = {"ch_anonymous", "0", FCVAR_SERVER};
+
+cvar_t bot_zombie = {"bot_zombie", "1", FCVAR_SERVER};
+
 static bool SV_InitServer()
 {
 	if (!FileSystem_LoadFileSystem())
@@ -539,6 +543,8 @@ void GameDLLInit()
 	CVAR_REGISTER(&ch_base_speed);
 	CVAR_REGISTER(&ch_proxvoice);
 	CVAR_REGISTER(&ch_punish_time);
+	CVAR_REGISTER(&ch_anonymous);
+	CVAR_REGISTER(&bot_zombie);
 
 	CVAR_REGISTER(&sv_allowbunnyhopping);
 

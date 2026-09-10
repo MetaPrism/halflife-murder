@@ -65,4 +65,7 @@ void LinkUserMessages()
 	gmsgStatusValue = REG_USER_MSG("StatusValue", 3);
 
 	gmsgWeapons = REG_USER_MSG("Weapons", 8);
+
+	gmsgCHAnon = REG_USER_MSG("CHAnon", -1); // player slot, colour index, real name
+
 }

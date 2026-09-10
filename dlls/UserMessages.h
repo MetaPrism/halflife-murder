@@ -55,4 +55,8 @@ inline int gmsgStatusValue = 0;
 
 inline int gmsgWeapons = 0;
 
+// Crowbar Hunt anonymous mode: which colour a player's name is drawn in, and
+// the real name the scoreboard shows behind the disguise.
+inline int gmsgCHAnon = 0;
+
 void LinkUserMessages();

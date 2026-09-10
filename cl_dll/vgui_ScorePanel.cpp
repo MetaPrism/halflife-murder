@@ -36,6 +36,11 @@ extern extra_player_info_t g_PlayerExtraInfo[MAX_PLAYERS_HUD + 1]; // additional
 team_info_t g_TeamInfo[MAX_TEAMS + 1];
 int g_IsSpectator[MAX_PLAYERS_HUD + 1];
 
+// Crowbar Hunt anonymous mode: who a disguised player really is, or NULL when
+// they are not disguised. The scoreboard is the one place this is allowed to
+// be shown - see the comment where it is defined, in death.cpp.
+extern const char* GetCHRealName(int clientIndex);
+
 bool HUD_IsGame(const char* game);
 bool EV_TFC_IsAllyTeam(int iTeam1, int iTeam2);
 
@@ -754,7 +759,11 @@ void ScorePanel::FillGrid()
 						}
 					}
 					*/
-					sprintf(sz, "%s  ", pl_info->name);
+					{
+						const char* pszReal = GetCHRealName(m_iSortedRows[row]);
+
+						sprintf(sz, "%s  ", pszReal ? pszReal : pl_info->name);
+					}
 					break;
 				case COLUMN_CLASS:
 					// No class for other team's members (unless allied or spectator)

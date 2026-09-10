@@ -29,6 +29,7 @@
 DECLARE_MESSAGE(m_StatusBar, StatusText);
 DECLARE_MESSAGE(m_StatusBar, StatusValue);
 
+#define STATUSBAR_OWNNAME_LINE 0
 #define STATUSBAR_ID_LINE 1
 
 float* GetClientColor(int clientIndex);
@@ -59,9 +60,14 @@ void CHudStatusBar::Reset()
 {
 	int i = 0;
 
-	m_iFlags &= ~HUD_ACTIVE; // start out inactive
+	// Line 0 is a permanent readout of the local player's own name, so this element is
+	// always drawn rather than waiting for a StatusText message.
+	m_iFlags |= HUD_ACTIVE;
 	for (i = 0; i < MAX_STATUSBAR_LINES; i++)
+	{
 		m_szStatusText[i][0] = 0;
+		m_szStatusBar[i][0] = 0; // the element stays active now, so clear what's drawn too
+	}
 	memset(m_iStatusValues, 0, sizeof m_iStatusValues);
 
 	m_iStatusValues[0] = 1; // 0 is the special index, which always returns true
@@ -189,23 +195,51 @@ bool CHudStatusBar::Draw(float fTime)
 	// Draw the status bar lines
 	for (int i = 0; i < MAX_STATUSBAR_LINES; i++)
 	{
+		const char* pszLine = m_szStatusBar[i];
+		float* pflColor = m_pflNameColors[i];
+
+		char szOwnName[MAX_PLAYER_NAME_LENGTH];
+
+		if (i == STATUSBAR_OWNNAME_LINE && 0 == pszLine[0])
+		{
+			// Nothing ever writes this line in-game, so it's the permanent home for our
+			// own name - the identity we're wearing this round.
+			cl_entity_t* pLocal = gEngfuncs.GetLocalPlayer();
+
+			if (!pLocal || gHUD.m_fPlayerDead || 0 != g_iUser1)
+				continue;
+
+			const int localIndex = pLocal->index;
+			gEngfuncs.pfnGetPlayerInfo(localIndex, &g_PlayerInfoList[localIndex]);
+
+			if (!g_PlayerInfoList[localIndex].name)
+				continue;
+
+			strncpy(szOwnName, g_PlayerInfoList[localIndex].name, MAX_PLAYER_NAME_LENGTH);
+			szOwnName[MAX_PLAYER_NAME_LENGTH - 1] = 0;
+
+			pszLine = szOwnName;
+			pflColor = GetClientColor(localIndex);
+		}
+
 		int TextHeight, TextWidth;
-		GetConsoleStringSize(m_szStatusBar[i], &TextWidth, &TextHeight);
+		GetConsoleStringSize(pszLine, &TextWidth, &TextHeight);
 
 		int x = 8;
 		int y = Y_START - (4 + TextHeight * i); // draw along bottom of screen
 
-		// let user set status ID bar centering
-		if ((i == STATUSBAR_ID_LINE) && 0 != CVAR_GET_FLOAT("hud_centerid"))
+		if (i == STATUSBAR_ID_LINE)
 		{
+			// the ID line sits centered just under the crosshair; hud_centerid lets the
+			// user push it further down, in text lines
 			x = V_max(0, V_max(2, (ScreenWidth - TextWidth)) / 2);
-			y = (ScreenHeight / 2) + (TextHeight * CVAR_GET_FLOAT("hud_centerid"));
+			y = (ScreenHeight / 2) + (int)(TextHeight * V_max(2.0f, CVAR_GET_FLOAT("hud_centerid")));
 		}
 
-		if (m_pflNameColors[i])
-			gEngfuncs.pfnDrawSetTextColor(m_pflNameColors[i][0], m_pflNameColors[i][1], m_pflNameColors[i][2]);
+		if (pflColor)
+			gEngfuncs.pfnDrawSetTextColor(pflColor[0], pflColor[1], pflColor[2]);
 
-		DrawConsoleString(x, y, m_szStatusBar[i]);
+		DrawConsoleString(x, y, pszLine);
 	}
 
 	return true;
