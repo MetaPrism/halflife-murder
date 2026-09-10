@@ -554,6 +554,7 @@ public:
 	CCommandMenu *	CreateDisguiseSubmenu( CommandButton *pButton, CCommandMenu *pParentMenu, const char *commandText, int iYOffset, int iXOffset = 0 );
 
 	void UpdateCursorState( void );
+	void UpdateSchemeColors( void );
 	void UpdateCommandMenu(int menuIndex);
 	void UpdateOnPlayerInfo( void );
 	void UpdateHighlights( void );
@@ -1732,6 +1733,8 @@ public:
 		// Draw the vertical line
 		int HealthWidth = gHUD.GetSpriteRect(gHUD.m_HUD_number_0).right - gHUD.GetSpriteRect(gHUD.m_HUD_number_0).left;
 		x += HealthWidth / 2;
-		FillRGBA(x, iYPos + 5, HealthWidth / 10, gHUD.m_iFontHeight, 255, 160, 0, a);
+		int hr, hg, hb;
+		UnpackRGB(hr, hg, hb, gHUD.m_iHUDColor);
+		FillRGBA(x, iYPos + 5, HealthWidth / 10, gHUD.m_iFontHeight, hr, hg, hb, a);
 	}
 };

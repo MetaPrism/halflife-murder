@@ -288,6 +288,51 @@ int __MsgFunc_AllowSpec(const char* pszName, int iSize, void* pbuf)
 }
 
 // This is called every time the DLL is loaded
+// Crowbar Hunt anonymous mode: the local player's round colour, packed, or -1 for none.
+extern int GetCHAnonPackedColor(int clientIndex);
+
+// Picks the colour the whole HUD - sprite elements and the VGUI scheme alike - is drawn in.
+//
+// Under ch_anonymous the identity we're wearing wins: the model, the name and the HUD are
+// then all one colour, so the round's disguise reads as a single thing rather than an orange
+// HUD sitting over a purple player. With no identity to wear it falls back to hud_color
+// ("R G B"), and anything unparseable there falls back to the classic Half-Life orange
+// rather than blacking the HUD out.
+bool CHud::UpdateHudColor()
+{
+	const int iOldColor = m_iHUDColor;
+
+	if (cl_entity_t* pLocal = gEngfuncs.GetLocalPlayer(); pLocal != nullptr)
+	{
+		const int iAnonColor = GetCHAnonPackedColor(pLocal->index);
+
+		if (iAnonColor >= 0)
+		{
+			m_iHUDColor = iAnonColor;
+			return m_iHUDColor != iOldColor;
+		}
+	}
+
+	int r, g, b;
+	UnpackRGB(r, g, b, RGB_YELLOWISH);
+
+	if (m_pCvarColor && m_pCvarColor->string)
+	{
+		int cr, cg, cb;
+
+		if (3 == sscanf(m_pCvarColor->string, "%d %d %d", &cr, &cg, &cb))
+		{
+			r = V_max(0, V_min(255, cr));
+			g = V_max(0, V_min(255, cg));
+			b = V_max(0, V_min(255, cb));
+		}
+	}
+
+	m_iHUDColor = (r << 16) | (g << 8) | b;
+
+	return m_iHUDColor != iOldColor;
+}
+
 void CHud::Init()
 {
 	HOOK_MESSAGE(Logo);
@@ -338,6 +383,9 @@ void CHud::Init()
 	default_fov = CVAR_CREATE("default_fov", "90", FCVAR_ARCHIVE);
 	m_pCvarStealMouse = CVAR_CREATE("hud_capturemouse", "1", FCVAR_ARCHIVE);
 	m_pCvarDraw = CVAR_CREATE("hud_draw", "1", FCVAR_ARCHIVE);
+	m_pCvarColor = CVAR_CREATE("hud_color", "255 160 0", FCVAR_ARCHIVE);
+	m_iHUDColor = RGB_YELLOWISH;
+	UpdateHudColor();
 	cl_lw = gEngfuncs.pfnGetCvarPointer("cl_lw");
 	cl_rollangle = CVAR_CREATE("cl_rollangle", "2.0", FCVAR_ARCHIVE);
 	cl_rollspeed = CVAR_CREATE("cl_rollspeed", "200", FCVAR_ARCHIVE);

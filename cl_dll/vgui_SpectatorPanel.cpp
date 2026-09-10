@@ -207,7 +207,7 @@ void SpectatorPanel::Initialize()
 
 	m_BottomMainButton->setParent(m_BottomBorder);
 	m_BottomMainButton->setPaintBackgroundEnabled(false);
-	m_BottomMainButton->setFgColor(Scheme::sc_primary1);
+	m_BottomMainButton->setFgColor(VGUI_CLASSIC_ORANGE); // spectator panel opts out of hud_color
 	m_BottomMainButton->setContentAlignment(vgui::Label::a_center);
 	m_BottomMainButton->setBorder(new LineBorder(Color(59, 58, 34, 48)));
 	m_BottomMainButton->setBoundKey((char)255); // special no bound to avoid leading spaces in name
@@ -223,7 +223,7 @@ void SpectatorPanel::Initialize()
 
 	m_BottomMainLabel->setParent(m_BottomBorder);
 	m_BottomMainLabel->setPaintBackgroundEnabled(false);
-	m_BottomMainLabel->setFgColor(Scheme::sc_primary1);
+	m_BottomMainLabel->setFgColor(VGUI_CLASSIC_ORANGE); // spectator panel opts out of hud_color
 	m_BottomMainLabel->setContentAlignment(vgui::Label::a_center);
 	m_BottomMainLabel->setBorder(NULL);
 	m_BottomMainLabel->setVisible(false);

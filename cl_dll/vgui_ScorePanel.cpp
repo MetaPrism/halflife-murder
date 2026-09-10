@@ -111,7 +111,7 @@ ScorePanel::ScorePanel(int x, int y, int wide, int tall) : Panel(x, y, wide, tal
 	m_TitleLabel.setFont(tfont);
 	m_TitleLabel.setText("");
 	m_TitleLabel.setBgColor(0, 0, 0, 255);
-	m_TitleLabel.setFgColor(Scheme::sc_primary1);
+	m_TitleLabel.setFgColor(VGUI_CLASSIC_ORANGE); // scoreboard opts out of hud_color
 	m_TitleLabel.setContentAlignment(vgui::Label::a_west);
 
 	LineBorder* border = new LineBorder(Color(60, 60, 60, 128));
@@ -163,7 +163,7 @@ ScorePanel::ScorePanel(int x, int y, int wide, int tall) : Panel(x, y, wide, tal
 		m_HeaderGrid.SetEntry(i, 0, &m_HeaderLabels[i]);
 
 		m_HeaderLabels[i].setBgColor(0, 0, 0, 255);
-		m_HeaderLabels[i].setFgColor(Scheme::sc_primary1);
+		m_HeaderLabels[i].setFgColor(VGUI_CLASSIC_ORANGE); // scoreboard opts out of hud_color
 		m_HeaderLabels[i].setFont(smallfont);
 		m_HeaderLabels[i].setContentAlignment(g_ColumnInfo[i].m_Alignment);
 

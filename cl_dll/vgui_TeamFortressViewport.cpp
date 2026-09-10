@@ -563,6 +563,9 @@ TeamFortressViewport::TeamFortressViewport(int x, int y, int wide, int tall) : P
 		pScheme->setColor(Scheme::sc_secondary1, 255 * 0.7, 170 * 0.7, 0, 0);
 	}
 
+	// ...then let hud_color override the foreground colours the scheme file just supplied
+	UpdateSchemeColors();
+
 	// Change the second primary font (used in the scoreboard)
 	SchemeHandle_t hScoreboardScheme = m_SchemeManager.getSchemeHandle("Scoreboard Text");
 	{
@@ -1657,6 +1660,36 @@ void TeamFortressViewport::UpdateOnPlayerInfo()
 		m_pClassMenu->Update();
 	if (m_pScoreBoard)
 		m_pScoreBoard->Update();
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Recolours the shared VGUI scheme from hud_color so the menus, buttons and MOTD
+//			match the rest of the HUD. Only the foreground colours are touched - the
+//			backgrounds stay the dark values the scheme file supplied. The scoreboard and
+//			the spectator panel set their own colours explicitly and are left alone.
+//			Note VGUI's alpha is inverted here: 0 is opaque, 255 is invisible.
+//-----------------------------------------------------------------------------
+void TeamFortressViewport::UpdateSchemeColors()
+{
+	Scheme* pScheme = App::getInstance()->getScheme();
+
+	if (!pScheme)
+		return;
+
+	int r, g, b;
+	UnpackRGB(r, g, b, gHUD.m_iHUDColor);
+
+	// normal button and label text
+	pScheme->setColor(Scheme::sc_primary1, r, g, b, 0);
+
+	// armed (moused-over) text - the stock scheme brightens towards white, so do the same
+	pScheme->setColor(Scheme::sc_secondary2,
+		r + (255 - r) / 2, g + (255 - g) / 2, b + (255 - b) / 2, 0);
+
+	// button borders, dimmed by the same 0.7 the stock scheme hardcoded above
+	pScheme->setColor(Scheme::sc_secondary1, (int)(r * 0.7f), (int)(g * 0.7f), (int)(b * 0.7f), 0);
+
+	App::getInstance()->setScheme(pScheme);
 }
 
 void TeamFortressViewport::UpdateCursorState()

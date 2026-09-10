@@ -104,6 +104,25 @@ int __MsgFunc_CHAnon(const char* pszName, int iSize, void* pbuf)
 	return 1;
 }
 
+// The colour a player is wearing this round, packed 0x00RRGGBB, or -1 when they have no
+// anonymous identity (ch_anonymous is off, or they joined after the round's deal). Kept
+// separate from GetClientColor() because that one falls back to the team/grey colours, and
+// the HUD tint has to be able to tell "no identity" apart from "grey identity".
+int GetCHAnonPackedColor(int clientIndex)
+{
+	if (clientIndex < 0 || clientIndex > MAX_PLAYERS)
+		return -1;
+
+	const int anon = g_CHAnonColorIndex[clientIndex];
+
+	if (anon < 0 || anon >= CH_NUM_ANON_COLORS)
+		return -1;
+
+	const float* rgb = g_CHAnonColors[anon].rgb;
+
+	return ((int)(rgb[0] * 255.0f) << 16) | ((int)(rgb[1] * 255.0f) << 8) | (int)(rgb[2] * 255.0f);
+}
+
 float* GetClientColor(int clientIndex)
 {
 	if (clientIndex >= 0 && clientIndex <= MAX_PLAYERS)

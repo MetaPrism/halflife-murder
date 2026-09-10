@@ -41,6 +41,11 @@ void CHud::Think()
 	m_scrinfo.iSize = sizeof(m_scrinfo);
 	GetScreenInfo(&m_scrinfo);
 
+	// hud_color can change at any time; the sprite-based elements pick the new value up on
+	// their next Draw, but the VGUI scheme caches its colours and has to be pushed.
+	if (UpdateHudColor() && gViewPort)
+		gViewPort->UpdateSchemeColors();
+
 	int newfov;
 	HUDLIST* pList = m_pHudList;
 

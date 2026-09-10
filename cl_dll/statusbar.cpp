@@ -228,7 +228,14 @@ bool CHudStatusBar::Draw(float fTime)
 		int x = 8;
 		int y = Y_START - (4 + TextHeight * i); // draw along bottom of screen
 
-		if (i == STATUSBAR_ID_LINE)
+		if (i == STATUSBAR_OWNNAME_LINE)
+		{
+			// sit directly on top of the health counter. CHudHealth::Draw puts the top of
+			// that row at ScreenHeight - m_iFontHeight * 1.5, and m_iFontHeight comes from
+			// the number sprites, so this tracks the HUD's own scaling at any resolution.
+			y = (ScreenHeight - gHUD.m_iFontHeight - gHUD.m_iFontHeight / 2) - TextHeight - 4;
+		}
+		else if (i == STATUSBAR_ID_LINE)
 		{
 			// the ID line sits centered just under the crosshair; hud_centerid lets the
 			// user push it further down, in text lines

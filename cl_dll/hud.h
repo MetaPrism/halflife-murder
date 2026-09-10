@@ -23,6 +23,10 @@
 #pragma once
 
 #define RGB_YELLOWISH 0x00FFA000 //255,160,0
+
+// The classic HUD orange as separate channels, for the VGUI panels that deliberately opt out
+// of hud_color (the scoreboard and the spectator panel). VGUI alpha is inverted: 0 is opaque.
+#define VGUI_CLASSIC_ORANGE 255, 160, 0, 0
 #define RGB_REDISH 0x00FF1010	 //255,160,0
 #define RGB_GREENISH 0x0000A000	 //0,160,0
 
@@ -508,6 +512,11 @@ public:
 	int m_iRes;
 	cvar_t* m_pCvarStealMouse;
 	cvar_t* m_pCvarDraw;
+	cvar_t* m_pCvarColor; // "hud_color" - "R G B", recolors the HUD and the VGUI menus
+
+	// Packed 0x00RRGGBB parsed from m_pCvarColor, in the same form as RGB_YELLOWISH so it
+	// can be fed straight to UnpackRGB(). Refreshed once per frame by UpdateHudColor().
+	int m_iHUDColor = RGB_YELLOWISH;
 
 	int m_iFontHeight;
 	int DrawHudNumber(int x, int y, int iFlags, int iNumber, int r, int g, int b);
@@ -576,6 +585,10 @@ public:
 	void Init();
 	void VidInit();
 	void Think();
+
+	// Re-parses hud_color into m_iHUDColor. Returns true if the colour actually changed,
+	// which is the cue to push it back into the VGUI scheme.
+	bool UpdateHudColor();
 	bool Redraw(float flTime, bool intermission);
 	bool UpdateClientData(client_data_t* cdata, float time);
 
