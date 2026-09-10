@@ -81,6 +81,11 @@ public:
 	bool        FPlayerCanRespawn(CBasePlayer* pPlayer) override;
 	void        PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor) override;
 
+	// The standard killfeed would out the Killer the moment they swing, so it
+	// is suppressed entirely and replaced with a chat line for the kills that
+	// are not the Killer's - see the comment on the implementation.
+	void        DeathNotice(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor) override;
+
 	// Weapons belong to roles: the crowbar marks the Killer and the revolver
 	// the Hunter, so neither can be traded across that line by picking one up.
 	bool CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerItem* pItem) override;

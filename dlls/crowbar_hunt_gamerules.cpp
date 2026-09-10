@@ -6,6 +6,7 @@
 #include "client.h"
 #include "skill.h"
 #include "game.h"
+#include "hltv.h"
 #include "crowbar_hunt_gamerules.h"
 #include "crowbar_hunt_shared.h"
 #include "UserMessages.h"
@@ -1362,6 +1363,131 @@ void CHalfLifeCrowbarHunt::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller
 	// their death animation finishes - Think() picks that up.
 	if (m_roundState == CHRoundState::InProgress)
 		CheckRoundWinConditions();
+}
+
+// ---------------------------------------------------------------------------
+// Obituaries
+//
+// The stock killfeed is the mode's largest information leak: a single crowbar
+// obituary names the Killer to the whole server the moment they swing. The HUD
+// draws that feed purely from gmsgDeathMsg, so this override never sends it -
+// no death produces a killfeed entry at all.
+//
+// Kills that are *not* the Killer's are public knowledge by design (a Hunter
+// shooting the wrong person is the mistake the mode is built around, and it
+// already costs them the revolver), so those are announced in chat instead.
+// Suicides and world deaths stay silent: they say nothing about who is who.
+//
+// Deliberately does not chain to CHalfLifeMultiplay::DeathNotice() - that
+// always writes gmsgDeathMsg and there is no taking it back from here. The
+// parts of it worth keeping, the server log line and the HLTV director event,
+// are reproduced below.
+// ---------------------------------------------------------------------------
+void CHalfLifeCrowbarHunt::DeathNotice(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor)
+{
+	if (!pVictim || !pKiller)
+		return;
+
+	const bool bKillerIsPlayer = (pKiller->flags & FL_CLIENT) != 0;
+
+	// Same resolution the base class does, for the log line below.
+	const char* killer_weapon_name = "world";
+
+	if (bKillerIsPlayer)
+	{
+		if (pInflictor)
+		{
+			if (pInflictor == pKiller)
+			{
+				CBasePlayer* pPlayer = static_cast<CBasePlayer*>(CBaseEntity::Instance(pKiller));
+
+				if (pPlayer && pPlayer->m_pActiveItem)
+					killer_weapon_name = pPlayer->m_pActiveItem->pszName();
+			}
+			else
+			{
+				killer_weapon_name = STRING(pInflictor->classname);
+			}
+		}
+	}
+	else if (pInflictor)
+	{
+		killer_weapon_name = STRING(pInflictor->classname);
+	}
+
+	if (strncmp(killer_weapon_name, "weapon_", 7) == 0)
+		killer_weapon_name += 7;
+	else if (strncmp(killer_weapon_name, "monster_", 8) == 0)
+		killer_weapon_name += 8;
+	else if (strncmp(killer_weapon_name, "func_", 5) == 0)
+		killer_weapon_name += 5;
+
+	// The announcement itself: somebody other than the Killer killed somebody
+	// other than themselves. Only the attacker is named - naming the victim, or
+	// saying what killed them, would hand the room a free read on who just went
+	// quiet and what they were holding. That someone innocent died is the whole
+	// message.
+	//
+	// A dead Killer is not announced here: the round is already over by the
+	// time this runs, and EndRound() says so.
+	if (bKillerIsPlayer && pKiller != pVictim->pev && GetPlayerRole(pVictim) != CHRole::Killer)
+	{
+		CBasePlayer* pAttacker = static_cast<CBasePlayer*>(CBaseEntity::Instance(pKiller));
+
+		if (pAttacker && GetPlayerRole(pAttacker) != CHRole::Killer)
+		{
+			char szText[128];
+			snprintf(szText, sizeof(szText), "%s killed an innocent survivor.\n",
+				STRING(pAttacker->pev->netname));
+
+			UTIL_ClientPrintAll(HUD_PRINTTALK, szText);
+		}
+	}
+
+	// Server log, in the non-teamplay format - this mode is never teamplay.
+	if (pVictim->pev == pKiller)
+	{
+		UTIL_LogPrintf("\"%s<%i><%s><%i>\" committed suicide with \"%s\"\n",
+			STRING(pVictim->pev->netname),
+			GETPLAYERUSERID(pVictim->edict()),
+			GETPLAYERAUTHID(pVictim->edict()),
+			GETPLAYERUSERID(pVictim->edict()),
+			killer_weapon_name);
+	}
+	else if (bKillerIsPlayer)
+	{
+		UTIL_LogPrintf("\"%s<%i><%s><%i>\" killed \"%s<%i><%s><%i>\" with \"%s\"\n",
+			STRING(pKiller->netname),
+			GETPLAYERUSERID(ENT(pKiller)),
+			GETPLAYERAUTHID(ENT(pKiller)),
+			GETPLAYERUSERID(ENT(pKiller)),
+			STRING(pVictim->pev->netname),
+			GETPLAYERUSERID(pVictim->edict()),
+			GETPLAYERAUTHID(pVictim->edict()),
+			GETPLAYERUSERID(pVictim->edict()),
+			killer_weapon_name);
+	}
+	else
+	{
+		UTIL_LogPrintf("\"%s<%i><%s><%i>\" committed suicide with \"%s\" (world)\n",
+			STRING(pVictim->pev->netname),
+			GETPLAYERUSERID(pVictim->edict()),
+			GETPLAYERAUTHID(pVictim->edict()),
+			GETPLAYERUSERID(pVictim->edict()),
+			killer_weapon_name);
+	}
+
+	// HLTV director hint, unchanged from the base class.
+	MESSAGE_BEGIN(MSG_SPEC, SVC_DIRECTOR);
+	WRITE_BYTE(9);							 // command length in bytes
+	WRITE_BYTE(DRC_CMD_EVENT);				 // player killed
+	WRITE_SHORT(ENTINDEX(pVictim->edict())); // index number of primary entity
+	if (pInflictor)
+		WRITE_SHORT(ENTINDEX(ENT(pInflictor))); // index number of secondary entity
+	else
+		WRITE_SHORT(ENTINDEX(ENT(pKiller))); // index number of secondary entity
+	WRITE_LONG(7 | DRC_FLAG_DRAMATIC);		 // eventflags (priority and flags)
+	MESSAGE_END();
 }
 
 void CHalfLifeCrowbarHunt::CheckRoundWinConditions()
