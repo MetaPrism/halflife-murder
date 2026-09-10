@@ -1313,6 +1313,83 @@ void CHalfLifeCrowbarHunt::ClearPunishments()
 	}
 }
 
+// kRenderFxGlowShell is drawn by the studio renderer as a second pass over the
+// model with chrome forced on (see CStudioModelRenderer::StudioRenderModel), so
+// it only works on studio models - which both of these pickups are - and it is
+// occluded by walls like the model itself. renderamt is the shell thickness,
+// not an alpha.
+void CH_SetWeaponGlow(CBaseEntity* pEntity, CHWeaponGlow weapon)
+{
+	if (!pEntity)
+		return;
+
+	const int thickness = static_cast<int>(ch_glow_shell.value);
+
+	if (thickness <= 0)
+		return;
+
+	pEntity->pev->renderfx = kRenderFxGlowShell;
+	pEntity->pev->renderamt = thickness;
+	if (weapon == CHWeaponGlow::Crowbar)
+		pEntity->pev->rendercolor = Vector(200, 20, 20);
+	else
+		pEntity->pev->rendercolor = Vector(20, 60, 220);
+}
+
+// Drop the Hunter's revolver so it can be inherited.
+//
+// DropPlayerItem() always packs into a CWeaponBox, whose world model is the
+// generic w_weaponbox.mdl duffel bag. That reads as "someone's whole kit" -
+// misleading in a mode where the revolver is the only gun in play - so the box
+// is reskinned to the revolver's own world model right after it is created.
+// The box entity is kept (rather than spawning a bare weapon_357) because it
+// carries the ammo across with the gun and its Touch() already honours
+// CanHavePlayerItem(), which is what gates non-Hunters from picking it up.
+//
+// DropPlayerItem() returns void, so the new box is found by walking the
+// weaponboxes owned by this player - all of which are ours, since
+// DeadPlayerWeapons() drops nothing on its own.
+static void CH_DropRevolver(CBasePlayer* pPlayer)
+{
+	// DropPlayerItem() takes a mutable string.
+	char szRevolver[] = "weapon_357";
+	pPlayer->DropPlayerItem(szRevolver);
+
+	CBaseEntity* pBox = nullptr;
+
+	while ((pBox = UTIL_FindEntityByClassname(pBox, "weaponbox")) != nullptr)
+	{
+		if (pBox->pev->owner != pPlayer->edict())
+			continue;
+
+		CWeaponBox* pWeaponBox = static_cast<CWeaponBox*>(pBox);
+		bool bHasRevolver = false;
+
+		for (int i = 0; i < MAX_ITEM_TYPES; i++)
+		{
+			for (CBasePlayerItem* pItem = pWeaponBox->m_rgpPlayerItems[i]; pItem != nullptr; pItem = pItem->m_pNext)
+			{
+				if (FStrEq(STRING(pItem->pev->classname), "weapon_357"))
+					bHasRevolver = true;
+			}
+		}
+
+		if (!bHasRevolver)
+			continue;
+
+		// Precached by CPython::Precache(), which runs for every round since
+		// the Hunter is always given one.
+		SET_MODEL(ENT(pWeaponBox->pev), "models/w_357.mdl");
+
+		// SET_MODEL adopts the model's own bounds; the box relies on the empty
+		// size CWeaponBox::Spawn() set (SetObjectCollisionBox() expands it for
+		// touch), so put it back.
+		UTIL_SetSize(pWeaponBox->pev, g_vecZero, g_vecZero);
+
+		CH_SetWeaponGlow(pWeaponBox, CHWeaponGlow::Revolver);
+	}
+}
+
 // Run every frame for every player, from PlayerThink().
 void CHalfLifeCrowbarHunt::ServicePunishment(CBasePlayer* pPlayer)
 {
@@ -1337,9 +1414,7 @@ void CHalfLifeCrowbarHunt::ServicePunishment(CBasePlayer* pPlayer)
 	// the penalty and is not worth trusting to a single gate.
 	if (bPunished && pPlayer->IsAlive() && pPlayer->HasNamedPlayerItem("weapon_357"))
 	{
-		// DropPlayerItem() takes a mutable string.
-		char szRevolver[] = "weapon_357";
-		pPlayer->DropPlayerItem(szRevolver);
+		CH_DropRevolver(pPlayer);
 	}
 
 	UpdatePlayerJump(pPlayer, bPunished);
@@ -1985,9 +2060,7 @@ void CHalfLifeCrowbarHunt::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller
 	// time and its ammo goes into the box with it.
 	if (pVictim && GetPlayerRole(pVictim) == CHRole::Hunter && pVictim->HasNamedPlayerItem("weapon_357"))
 	{
-		// DropPlayerItem() takes a mutable string.
-		char szRevolver[] = "weapon_357";
-		pVictim->DropPlayerItem(szRevolver);
+		CH_DropRevolver(pVictim);
 	}
 
 	// The victim's health is already <= 0 here (CBasePlayer::Killed() calls us

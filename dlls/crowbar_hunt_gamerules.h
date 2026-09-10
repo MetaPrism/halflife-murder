@@ -340,3 +340,15 @@ private:
 	int              m_numSnapshots;
 	bool             m_bSnapshotTaken;
 };
+
+// Which of the two weapons a world-lying pickup is, for CH_SetWeaponGlow().
+enum class CHWeaponGlow
+{
+	Crowbar, // red
+	Revolver, // blue
+};
+
+// Put a coloured glow shell on a weapon that is lying in (or flying through)
+// the world, so players can tell a gun on the floor from the scenery. Safe to
+// call on any entity; does nothing when ch_glow_shell is 0.
+void CH_SetWeaponGlow(CBaseEntity* pEntity, CHWeaponGlow weapon);

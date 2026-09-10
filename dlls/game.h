@@ -51,6 +51,11 @@ extern cvar_t sv_crowbarhunt;
 // them by itself. 0 disables the return.
 extern cvar_t ch_crowbar_return_time;
 
+// Thickness of the kRenderFxGlowShell outline on a weapon lying in the world -
+// red for the Killer's thrown crowbar, blue for a dropped revolver - so a gun
+// on the floor reads as a gun from across the room. 0 turns the outlines off.
+extern cvar_t ch_glow_shell;
+
 // Ground speed the Killer gets while holding +sprint, and the speed every
 // other player (and the Killer when not sprinting) is held to.
 extern cvar_t ch_sprint_speed;

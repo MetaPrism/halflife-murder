@@ -463,6 +463,8 @@ cvar_t sv_crowbarhunt = {"sv_crowbarhunt", "1", FCVAR_SERVER};
 
 cvar_t ch_crowbar_return_time = {"ch_crowbar_return_time", "40", FCVAR_SERVER};
 
+cvar_t ch_glow_shell = {"ch_glow_shell", "20", FCVAR_SERVER};
+
 cvar_t ch_sprint_speed = {"ch_sprint_speed", "270", FCVAR_SERVER};
 cvar_t ch_base_speed = {"ch_base_speed", "240", FCVAR_SERVER};
 
@@ -544,6 +546,7 @@ void GameDLLInit()
 
 	CVAR_REGISTER(&sv_crowbarhunt);
 	CVAR_REGISTER(&ch_crowbar_return_time);
+	CVAR_REGISTER(&ch_glow_shell);
 	CVAR_REGISTER(&ch_sprint_speed);
 	CVAR_REGISTER(&ch_base_speed);
 	CVAR_REGISTER(&ch_proxvoice);

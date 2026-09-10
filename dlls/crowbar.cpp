@@ -23,6 +23,7 @@
 
 #ifndef CLIENT_DLL
 #include "game.h"
+#include "crowbar_hunt_gamerules.h"
 #endif
 
 
@@ -216,6 +217,11 @@ void CCrowbarProjectile::Spawn()
 	UTIL_SetOrigin(pev, pev->origin);
 
 	SetTouch(&CCrowbarProjectile::FlyTouch);
+
+	// On from the moment it leaves the Killer's hands: a red bar spinning
+	// through the air is fair warning, and the same shell marks it on the floor
+	// afterwards. Move this to Land() to only light it up once it settles.
+	CH_SetWeaponGlow(this, CHWeaponGlow::Crowbar);
 }
 
 CCrowbarProjectile* CCrowbarProjectile::Throw(CBasePlayer* pOwner, const Vector& vecOrigin, const Vector& vecVelocity)
