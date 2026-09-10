@@ -189,6 +189,10 @@ private:
 	void        ClearPunishments();
 	static void UpdatePlayerJump(CBasePlayer* pPlayer, bool bPunished);
 
+	// Darken or clear one player's view. The tint holds until it is told
+	// otherwise, so every path that ends a penalty has to turn it off.
+	static void SetPunishTint(CBasePlayer* pPlayer, bool bOn);
+
 	// --- map reset ---
 	void        TakeMapSnapshot();  // record spawn state of resettable entities (once per map)
 	void        ResetMapEntities(); // put the world back the way the map loaded

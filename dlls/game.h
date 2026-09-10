@@ -65,6 +65,10 @@ extern cvar_t ch_proxvoice;
 // picking a revolver back up. 0 disables the punishment entirely.
 extern cvar_t ch_punish_time;
 
+// How dark the screen goes for the duration of that penalty, 0-255. 0 leaves
+// the shooter's view alone and the rest of the penalty unchanged.
+extern cvar_t ch_punish_tint;
+
 // Anonymous mode: every round, each player is given a random colour and a
 // random name off the names file, so nobody can be picked out of a round by
 // the name or the colours they usually play under. Their model choice is left

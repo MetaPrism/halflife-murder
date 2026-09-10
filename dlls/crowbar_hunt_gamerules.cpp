@@ -7,6 +7,7 @@
 #include "skill.h"
 #include "game.h"
 #include "hltv.h"
+#include "shake.h"
 #include "crowbar_hunt_gamerules.h"
 #include "crowbar_hunt_shared.h"
 #include "UserMessages.h"
@@ -35,6 +36,12 @@ constexpr float CH_PUNISH_SPEED = 100.0f;
 // string because PM_Jump() has to read the same number the server does.
 constexpr const char* CH_PUNISH_JUMP_PERCENT = "50";
 constexpr const char* CH_NORMAL_JUMP_PERCENT = "100";
+
+// Seconds the punishment tint takes to arrive and to lift. Fading in fast keeps
+// it legible as a consequence of the shot; lifting slowly stops the moment the
+// penalty ends from reading as a graphical glitch.
+constexpr float CH_PUNISH_TINT_FADE_IN = 0.4f;
+constexpr float CH_PUNISH_TINT_FADE_OUT = 1.5f;
 
 // How long after a player spawns to send them the scoreboard title. Long enough
 // that a player spawning during the initial level load has a client DLL with its
@@ -1219,6 +1226,8 @@ void CHalfLifeCrowbarHunt::PunishShooter(CBasePlayer* pPlayer)
 
 	m_flPunishEndTime[idx] = gpGlobals->time + ch_punish_time.value;
 
+	SetPunishTint(pPlayer, true);
+
 	// The gun is taken away a frame later, by ServicePunishment(). We are
 	// called from inside CBasePlayer::TakeDamage(), which is itself inside the
 	// revolver's own PrimaryAttack(): dropping it here would holster and repack
@@ -1255,6 +1264,25 @@ void CHalfLifeCrowbarHunt::PunishShooter(CBasePlayer* pPlayer)
 			static_cast<int>(ch_punish_time.value)));
 }
 
+// The engine draws the fade over the world but under the HUD, so the penalty
+// costs the shooter their sight of the map without also hiding the message
+// telling them why.
+void CHalfLifeCrowbarHunt::SetPunishTint(CBasePlayer* pPlayer, bool bOn)
+{
+	const int alpha = static_cast<int>(ch_punish_tint.value);
+
+	if (alpha <= 0)
+		return;
+
+	// FFADE_STAYOUT holds at full alpha until the next ScreenFade message
+	// arrives instead of timing out on its own. That is what lets one fade
+	// cover a whole ch_punish_time: the duration field is 4.12 fixed point and
+	// could not carry a penalty longer than about sixteen seconds.
+	UTIL_ScreenFade(pPlayer, Vector(0, 0, 0),
+		bOn ? CH_PUNISH_TINT_FADE_IN : CH_PUNISH_TINT_FADE_OUT, 0.0f,
+		alpha, bOn ? (FFADE_OUT | FFADE_STAYOUT) : FFADE_IN);
+}
+
 bool CHalfLifeCrowbarHunt::IsPunished(CBasePlayer* pPlayer) const
 {
 	if (!pPlayer)
@@ -1271,7 +1299,18 @@ bool CHalfLifeCrowbarHunt::IsPunished(CBasePlayer* pPlayer) const
 void CHalfLifeCrowbarHunt::ClearPunishments()
 {
 	for (int i = 0; i <= MAX_PLAYERS; i++)
+	{
+		if (m_flPunishEndTime[i] == 0.0f)
+			continue;
+
 		m_flPunishEndTime[i] = 0.0f;
+
+		// A penalty cut short by the round ending still has to lift its own
+		// tint - nothing else will, and the player would spend the next round
+		// in the dark.
+		if (CBaseEntity* pPlayer = UTIL_PlayerByIndex(i); pPlayer != nullptr)
+			SetPunishTint(static_cast<CBasePlayer*>(pPlayer), false);
+	}
 }
 
 // Run every frame for every player, from PlayerThink().
@@ -1285,6 +1324,7 @@ void CHalfLifeCrowbarHunt::ServicePunishment(CBasePlayer* pPlayer)
 	if (m_flPunishEndTime[idx] != 0.0f && gpGlobals->time >= m_flPunishEndTime[idx])
 	{
 		m_flPunishEndTime[idx] = 0.0f;
+		SetPunishTint(pPlayer, false);
 		//ClientPrint(pPlayer->pev, HUD_PRINTCENTER,
 		//	"Penalty served.\nYou can move - and carry a revolver - again.\n");
 	}
@@ -1818,6 +1858,13 @@ void CHalfLifeCrowbarHunt::MoveDeadPlayersToObserver() const
 		// animation has played out; going early would cut it off mid-fall.
 		if (pPlayer->pev->deadflag != DEAD_DEAD)
 			continue;
+
+		// The rest of a penalty means nothing to a dead player, but the tint
+		// would follow them into the spectator camera and leave them watching
+		// the round through it. The timer keeps running: only the view is
+		// given back.
+		if (IsPunished(pPlayer))
+			SetPunishTint(pPlayer, false);
 
 		LeaveCorpse(pPlayer);
 		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
