@@ -22,6 +22,12 @@
 // server.
 static bool g_bIsBot[MAX_PLAYERS + 1] = {};
 
+// The name each bot was created with. pev->netname can't answer that question:
+// under ch_anonymous the gamerules overwrite both it and the userinfo name key
+// with a disguise, so a slot already holding "Bot1" reads back as somebody
+// else and the next bot picks the same name.
+static char g_szBotName[MAX_PLAYERS + 1][32] = {};
+
 static float g_flLastBotMoveTime = 0;
 
 // Wander state, only used while bot_zombie is 0. A bot walks along one yaw
@@ -58,6 +64,12 @@ static void BotPickName(char* out, int outSize)
 
 		for (int i = 1; i <= gpGlobals->maxClients; ++i)
 		{
+			if (g_bIsBot[i] && FStrEq(g_szBotName[i], candidate))
+			{
+				taken = true;
+				break;
+			}
+
 			CBaseEntity* pPlayer = UTIL_PlayerByIndex(i);
 
 			if (pPlayer && FStrEq(STRING(pPlayer->pev->netname), candidate))
@@ -140,6 +152,9 @@ static void BotAdd()
 
 	g_bIsBot[index] = true;
 
+	strncpy(g_szBotName[index], name, sizeof(g_szBotName[index]) - 1);
+	g_szBotName[index][sizeof(g_szBotName[index]) - 1] = '\0';
+
 	g_flBotYaw[index] = RANDOM_FLOAT(-180, 180);
 	g_vecBotLastOrigin[index] = pEdict->v.origin;
 	g_flBotNextProgressCheck[index] = gpGlobals->time + BOT_PROGRESS_INTERVAL;
@@ -159,6 +174,7 @@ static void BotKickAll()
 		// kick is queued in the command buffer and runs after this frame, so
 		// drop the slot now: nothing should touch a bot that is on its way out.
 		g_bIsBot[i] = false;
+		g_szBotName[i][0] = '\0';
 
 		SERVER_COMMAND(UTIL_VarArgs("kick # %d\n", GETPLAYERUSERID(INDEXENT(i))));
 		++kicked;
@@ -178,7 +194,10 @@ void BotClientDisconnected(edict_t* pEntity)
 	const int index = ENTINDEX(pEntity);
 
 	if (index >= 1 && index <= MAX_PLAYERS)
+	{
 		g_bIsBot[index] = false;
+		g_szBotName[index][0] = '\0';
+	}
 }
 
 void BotThink()

@@ -204,6 +204,15 @@ bool CHudStatusBar::Draw(float fTime)
 		{
 			// Nothing ever writes this line in-game, so it's the permanent home for our
 			// own name - the identity we're wearing this round.
+			//
+			// This element is always HUD_ACTIVE, so check we're in a level before asking
+			// the engine for the local player: GetLocalPlayer() indexes the client entity
+			// list, which does not exist outside one.
+			const char* pszLevelName = gEngfuncs.pfnGetLevelName();
+
+			if (!pszLevelName || 0 == pszLevelName[0])
+				continue;
+
 			cl_entity_t* pLocal = gEngfuncs.GetLocalPlayer();
 
 			if (!pLocal || gHUD.m_fPlayerDead || 0 != g_iUser1)

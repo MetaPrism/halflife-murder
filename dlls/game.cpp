@@ -472,6 +472,10 @@ cvar_t ch_punish_time = {"ch_punish_time", "20", FCVAR_SERVER};
 
 cvar_t ch_anonymous = {"ch_anonymous", "0", FCVAR_SERVER};
 
+cvar_t ch_killer_decay = {"ch_killer_decay", "0.25", FCVAR_SERVER};
+cvar_t ch_killer_recover = {"ch_killer_recover", "0.25", FCVAR_SERVER};
+cvar_t ch_killer_min_weight = {"ch_killer_min_weight", "0.05", FCVAR_SERVER};
+
 cvar_t bot_zombie = {"bot_zombie", "1", FCVAR_SERVER};
 
 static bool SV_InitServer()
@@ -544,6 +548,9 @@ void GameDLLInit()
 	CVAR_REGISTER(&ch_proxvoice);
 	CVAR_REGISTER(&ch_punish_time);
 	CVAR_REGISTER(&ch_anonymous);
+	CVAR_REGISTER(&ch_killer_decay);
+	CVAR_REGISTER(&ch_killer_recover);
+	CVAR_REGISTER(&ch_killer_min_weight);
 	CVAR_REGISTER(&bot_zombie);
 
 	CVAR_REGISTER(&sv_allowbunnyhopping);
@@ -958,6 +965,7 @@ void GameDLLInit()
 
 	InitMapLoadingUtils();
 	InitBotCommands();
+	InitCrowbarHuntCommands();
 
 	SERVER_COMMAND("exec skill.cfg\n");
 }

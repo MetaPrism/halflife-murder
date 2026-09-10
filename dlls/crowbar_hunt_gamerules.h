@@ -140,6 +140,20 @@ public:
 	bool ClientConnected(edict_t* pEntity, const char* pszName, const char* pszAddress, char szRejectReason[128]) override;
 	void ClientDisconnected(edict_t* pClient) override;
 
+	// GetPlayerByIndex() for the "ch_odds" server command, which is a free
+	// function and so cannot reach the private one.
+	static CBasePlayer* GetPlayerByIndexPublic(int index) { return GetPlayerByIndex(index); }
+
+	// --- Killer draw odds (read-only; for the admin display) ---
+	// A player's current share of the Killer draw, in percent. Returns 0 for a
+	// slot that is not in the draw at all (empty, or connected but dead).
+	float GetKillerChancePercent(int index) const;
+
+	// The raw weight behind that share, 1.0 being "never been the Killer
+	// recently". Kept separate because the percentage moves when *anyone*
+	// joins or dies, and a display that wants to show why wants both.
+	float GetKillerWeight(int index) const;
+
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
 	bool        IsCoOp() override { return false; }
@@ -185,6 +199,23 @@ private:
 	// below indexed by ENTINDEX() must be cleared here and nowhere else - see
 	// the comment on the implementation for why that matters.
 	void ResetPlayerSlot(int index);
+
+	// --- Killer draw weighting ---
+	// Draw the Killer in proportion to m_flKillerWeight, so a player who was
+	// just the Killer is unlikely to be handed it again straight away.
+	CBasePlayer* PickWeightedKiller() const;
+
+	// Fold this round's draw back into the weights: the player who was picked
+	// decays, everyone else who was eligible recovers. Only ever called once
+	// per draw, from AssignRoles().
+	void AgeKillerWeights(CBasePlayer* pKiller);
+
+	// Is this slot in the Killer draw right now? The one definition of
+	// eligibility, shared by the draw, the ageing and the odds display.
+	bool IsKillerCandidate(int index) const;
+
+	// Total weight across everyone eligible, 0 if nobody is.
+	float TotalKillerWeight() const;
 
 	// --- role management ---
 	void   AssignRoles();
@@ -268,6 +299,12 @@ private:
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
 	CHRole m_playerRoles[MAX_PLAYERS + 1];
+
+	// Each slot's share of the Killer draw, relative to the others. 1.0 is the
+	// baseline everyone starts at and recovers back to; being drawn as the
+	// Killer knocks it down. Cleared with the slot, so a player who reconnects
+	// comes back at full odds - see ResetPlayerSlot().
+	float m_flKillerWeight[MAX_PLAYERS + 1];
 
 	// gpGlobals->time to send each player the scoreboard title, or 0 for nothing
 	// pending. Same indexing as m_playerRoles.

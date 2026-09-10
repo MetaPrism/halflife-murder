@@ -302,14 +302,19 @@ bool CHud::UpdateHudColor()
 {
 	const int iOldColor = m_iHUDColor;
 
-	if (cl_entity_t* pLocal = gEngfuncs.GetLocalPlayer(); pLocal != nullptr)
+	// Only ask the engine for the local player once we're actually in a level. GetLocalPlayer()
+	// indexes the client entity list, which does not exist yet when this runs outside one.
+	if (const char* pszLevelName = gEngfuncs.pfnGetLevelName(); pszLevelName != nullptr && pszLevelName[0] != 0)
 	{
-		const int iAnonColor = GetCHAnonPackedColor(pLocal->index);
-
-		if (iAnonColor >= 0)
+		if (cl_entity_t* pLocal = gEngfuncs.GetLocalPlayer(); pLocal != nullptr)
 		{
-			m_iHUDColor = iAnonColor;
-			return m_iHUDColor != iOldColor;
+			const int iAnonColor = GetCHAnonPackedColor(pLocal->index);
+
+			if (iAnonColor >= 0)
+			{
+				m_iHUDColor = iAnonColor;
+				return m_iHUDColor != iOldColor;
+			}
 		}
 	}
 
@@ -384,8 +389,7 @@ void CHud::Init()
 	m_pCvarStealMouse = CVAR_CREATE("hud_capturemouse", "1", FCVAR_ARCHIVE);
 	m_pCvarDraw = CVAR_CREATE("hud_draw", "1", FCVAR_ARCHIVE);
 	m_pCvarColor = CVAR_CREATE("hud_color", "255 160 0", FCVAR_ARCHIVE);
-	m_iHUDColor = RGB_YELLOWISH;
-	UpdateHudColor();
+	m_iHUDColor = RGB_YELLOWISH; // Think() resolves the real colour on the first frame in a level
 	cl_lw = gEngfuncs.pfnGetCvarPointer("cl_lw");
 	cl_rollangle = CVAR_CREATE("cl_rollangle", "2.0", FCVAR_ARCHIVE);
 	cl_rollspeed = CVAR_CREATE("cl_rollspeed", "200", FCVAR_ARCHIVE);

@@ -71,10 +71,28 @@ extern cvar_t ch_punish_time;
 // alone. 0 leaves everyone under their own name.
 extern cvar_t ch_anonymous;
 
+// How the Killer draw is weighted against repeats. Every player carries a
+// weight, 1.0 by default, and the Killer is drawn in proportion to it. Whoever
+// is drawn has their weight multiplied by ch_killer_decay; everyone else who
+// was in the draw gets ch_killer_recover added back, up to 1.0. So a decay of
+// 0.25 with a recover of 0.25 means a fresh Killer is a quarter as likely as
+// anyone else next round and takes three rounds to come back to even.
+// ch_killer_decay at 1 turns the whole thing off and restores a flat draw.
+extern cvar_t ch_killer_decay;
+extern cvar_t ch_killer_recover;
+
+// Floor under a player's Killer weight, so a long streak of bad luck can never
+// take somebody out of the draw entirely.
+extern cvar_t ch_killer_min_weight;
+
 // Bot behaviour: 1 leaves fake clients standing still (they only exist to fill
 // out a round), 0 makes them wander in a straight line and pick a new direction
 // whenever they run into something.
 extern cvar_t bot_zombie;
+
+// Register Crowbar Hunt's server console commands ("ch_odds"). Called once
+// from GameDLLInit(), alongside the bot commands.
+void InitCrowbarHuntCommands();
 
 // Engine Cvars
 inline cvar_t* g_psv_gravity;

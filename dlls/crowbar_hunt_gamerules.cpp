@@ -162,8 +162,64 @@ public:
 
 LINK_ENTITY_TO_CLASS(ch_corpse, CCrowbarHuntCorpse);
 
+// The instance InstallGameRules() built, for the server commands below. Only
+// ever compared against g_pGameRules, never dereferenced blind: a mode change
+// leaves this pointing at rules the engine has already dropped.
+namespace
+{
+CHalfLifeCrowbarHunt* g_pCrowbarHuntRules = nullptr;
+}
+
+// "ch_odds" - print each player's current share of the Killer draw.
+//
+// Server console only, deliberately: the weights are a record of who has been
+// the Killer lately, which is exactly what anonymous mode exists to hide. A
+// version of this a player could type would hand the room last round's answer.
+static void CH_PrintKillerOdds()
+{
+	if (!g_pCrowbarHuntRules || g_pCrowbarHuntRules != g_pGameRules)
+	{
+		ALERT(at_console, "ch_odds: not running Crowbar Hunt\n");
+		return;
+	}
+
+	ALERT(at_console, "Killer draw odds (weight x%.2f decay, +%.2f recover per round):\n",
+		ch_killer_decay.value, ch_killer_recover.value);
+
+	int shown = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
+	{
+		CBasePlayer* pPlayer = CHalfLifeCrowbarHunt::GetPlayerByIndexPublic(i);
+
+		if (!pPlayer)
+			continue;
+
+		const float flChance = g_pCrowbarHuntRules->GetKillerChancePercent(i);
+		const float flWeight = g_pCrowbarHuntRules->GetKillerWeight(i);
+
+		// A connected player who is not in the draw right now (dead, or a
+		// mid-round joiner sitting it out) still has a weight worth seeing.
+		ALERT(at_console, "  %-24s  %5.1f%%  (weight %.2f)%s\n",
+			STRING(pPlayer->pev->netname), flChance, flWeight,
+			flChance > 0.0f ? "" : "  [not in draw]");
+
+		++shown;
+	}
+
+	if (0 == shown)
+		ALERT(at_console, "  (nobody connected)\n");
+}
+
+void InitCrowbarHuntCommands()
+{
+	g_engfuncs.pfnAddServerCommand("ch_odds", &CH_PrintKillerOdds);
+}
+
 CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 {
+	g_pCrowbarHuntRules = this;
+
 	m_roundState        = CHRoundState::WaitingForPlayers;
 	m_flStateEnterTime  = gpGlobals->time;
 	m_flPreRoundLength  = 5.0f;
@@ -578,9 +634,16 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 		m_playerRoles[i] = CHRole::Survivor;
 	}
 
-	CBasePlayer* pKiller = PickRandomAlivePlayer();
+	// Weighted, not flat: whoever was Killer recently is drawn less often, so
+	// the role moves around the server instead of landing on the same player
+	// three rounds running. See AgeKillerWeights() for the bookkeeping.
+	CBasePlayer* pKiller = PickWeightedKiller();
 	if (pKiller)
 		SetPlayerRole(pKiller, CHRole::Killer);
+
+	// Age the weights against this draw before the Hunter pick, which does not
+	// touch them - only the Killer role is rationed.
+	AgeKillerWeights(pKiller);
 
 	// Pick the Hunter from everyone except whoever just got Killer.
 	CBasePlayer* pHunter = PickRandomAlivePlayer(CHRole::Killer);
@@ -965,6 +1028,11 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_playerRoles[index] = CHRole::Unassigned;
 	m_flPunishEndTime[index] = 0.0f;
 	m_flSendServerName[index] = 0.0f;
+
+	// A fresh slot draws at full odds. This does mean a player who reconnects
+	// sheds whatever repeat-suppression they had built up; the alternative is
+	// keeping a table keyed by auth id, which bots (all "BOT") would share.
+	m_flKillerWeight[index] = 1.0f;
 
 	m_anonColor[index] = -1;
 	m_szAnonName[index][0] = '\0';
@@ -1458,6 +1526,119 @@ int CHalfLifeCrowbarHunt::CountAlivePlayersWithRole(CHRole role) const
 	}
 
 	return count;
+}
+
+// ---------------------------------------------------------------------------
+// Killer draw weighting
+//
+// A flat draw hands the same player the crowbar twice in a row often enough to
+// feel broken - on a five-player server that is one round in five - and being
+// the Killer is the round that everyone else is playing against, so a repeat
+// costs the room a round as well as the player. Every slot therefore carries a
+// weight and the draw is proportional to it: being drawn multiplies the
+// weight by ch_killer_decay, and every round spent not being drawn adds
+// ch_killer_recover back, up to the 1.0 everyone starts at.
+//
+// Weights only move on rounds a player was actually in the draw for. Sitting
+// out as an observer neither improves nor spends anyone's odds.
+// ---------------------------------------------------------------------------
+bool CHalfLifeCrowbarHunt::IsKillerCandidate(int index) const
+{
+	CBasePlayer* pPlayer = GetPlayerByIndex(index);
+
+	return pPlayer && pPlayer->IsAlive();
+}
+
+float CHalfLifeCrowbarHunt::GetKillerWeight(int index) const
+{
+	if (index < 1 || index > MAX_PLAYERS)
+		return 0.0f;
+
+	return m_flKillerWeight[index];
+}
+
+float CHalfLifeCrowbarHunt::TotalKillerWeight() const
+{
+	float flTotal = 0.0f;
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
+	{
+		if (IsKillerCandidate(i))
+			flTotal += m_flKillerWeight[i];
+	}
+
+	return flTotal;
+}
+
+float CHalfLifeCrowbarHunt::GetKillerChancePercent(int index) const
+{
+	if (index < 1 || index > MAX_PLAYERS || !IsKillerCandidate(index))
+		return 0.0f;
+
+	const float flTotal = TotalKillerWeight();
+
+	if (flTotal <= 0.0f)
+		return 0.0f;
+
+	return (m_flKillerWeight[index] / flTotal) * 100.0f;
+}
+
+CBasePlayer* CHalfLifeCrowbarHunt::PickWeightedKiller() const
+{
+	const float flTotal = TotalKillerWeight();
+
+	// Nobody eligible, or every weight has somehow been driven to zero - fall
+	// back to the flat draw rather than leaving the round without a Killer.
+	if (flTotal <= 0.0f)
+		return PickRandomAlivePlayer();
+
+	// Walk the candidates subtracting their weight from a point chosen
+	// uniformly along the total, and stop at whoever the point lands inside.
+	float flRoll = RANDOM_FLOAT(0.0f, flTotal);
+
+	CBasePlayer* pLast = nullptr;
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
+	{
+		if (!IsKillerCandidate(i))
+			continue;
+
+		pLast = GetPlayerByIndex(i);
+		flRoll -= m_flKillerWeight[i];
+
+		if (flRoll <= 0.0f)
+			return pLast;
+	}
+
+	// RANDOM_FLOAT is inclusive at the top, so a roll of exactly flTotal walks
+	// off the end of the list. That is the last candidate.
+	return pLast;
+}
+
+void CHalfLifeCrowbarHunt::AgeKillerWeights(CBasePlayer* pKiller)
+{
+	const float flDecay = ch_killer_decay.value;
+	const float flRecover = ch_killer_recover.value;
+
+	// A decay of 1 (or higher) means "don't ration the role at all". Leave the
+	// weights alone entirely so flipping the cvar back on resumes from where
+	// the server left off rather than from a table of drifted numbers.
+	if (flDecay >= 1.0f)
+		return;
+
+	const float flMin = V_max(0.0f, ch_killer_min_weight.value);
+	const int   iKillerIndex = pKiller ? ENTINDEX(pKiller->edict()) : 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
+	{
+		if (!IsKillerCandidate(i))
+			continue;
+
+		if (i == iKillerIndex)
+			m_flKillerWeight[i] = V_max(flMin, m_flKillerWeight[i] * V_max(0.0f, flDecay));
+		else
+			m_flKillerWeight[i] = V_min(1.0f, m_flKillerWeight[i] + V_max(0.0f, flRecover));
+	}
 }
 
 CBasePlayer* CHalfLifeCrowbarHunt::PickRandomAlivePlayer(CHRole excludeRole) const
