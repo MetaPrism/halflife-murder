@@ -187,6 +187,13 @@ public:
 	// there: outside a live round, or for anyone not playing this round.
 	bool CollectLoot(CBasePlayer* pPlayer);
 
+	// Fill every empty loot spot at once, ignoring the interval and the cap.
+	// For the "ch_loot_respawn" server command. Returns how many were placed.
+	int SpawnAllLoot();
+
+	// Dump the loot table to the server console, for "ch_loot_list".
+	void PrintLootTable();
+
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
 	bool        IsCoOp() override { return false; }

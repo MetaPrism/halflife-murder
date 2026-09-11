@@ -231,9 +231,39 @@ static void CH_PrintKillerOdds()
 		ALERT(at_console, "  (nobody connected)\n");
 }
 
+// "ch_loot_respawn" - put a piece of loot on every empty spot, for testing a
+// map's loot table without waiting on the interval. Server console only, like
+// the rest: a player who could fire it would be handing themselves the round.
+static void CH_LootRespawn()
+{
+	if (!g_pCrowbarHuntRules || g_pCrowbarHuntRules != g_pGameRules)
+	{
+		ALERT(at_console, "ch_loot_respawn: not running Crowbar Hunt\n");
+		return;
+	}
+
+	const int placed = g_pCrowbarHuntRules->SpawnAllLoot();
+	ALERT(at_console, "ch_loot_respawn: placed %d piece%s of loot\n", placed, placed == 1 ? "" : "s");
+}
+
+// "ch_loot_list" - print the loot table as loaded: every spot, its model, and
+// whether a piece is sitting on it right now.
+static void CH_LootList()
+{
+	if (!g_pCrowbarHuntRules || g_pCrowbarHuntRules != g_pGameRules)
+	{
+		ALERT(at_console, "ch_loot_list: not running Crowbar Hunt\n");
+		return;
+	}
+
+	g_pCrowbarHuntRules->PrintLootTable();
+}
+
 void InitCrowbarHuntCommands()
 {
 	g_engfuncs.pfnAddServerCommand("ch_odds", &CH_PrintKillerOdds);
+	g_engfuncs.pfnAddServerCommand("ch_loot_respawn", &CH_LootRespawn);
+	g_engfuncs.pfnAddServerCommand("ch_loot_list", &CH_LootList);
 }
 
 CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
@@ -738,6 +768,52 @@ void CHalfLifeCrowbarHunt::ServiceLootSpawns()
 		return;
 
 	CH_CreateLoot(m_lootSpawns[freeSpots[RANDOM_LONG(0, numFree - 1)]]);
+}
+
+int CHalfLifeCrowbarHunt::SpawnAllLoot()
+{
+	// The table normally resolves on the first Think(); a command typed before
+	// that (from a listen server's console, say) should still see the map's
+	// markers.
+	if (!m_bLootSpawnsResolved)
+		ResolveLootSpawns();
+
+	int placed = 0;
+
+	for (int i = 0; i < m_numLootSpawns; i++)
+	{
+		if (static_cast<CBaseEntity*>(m_lootSpawns[i].hLoot) != nullptr)
+			continue;
+
+		if (CH_CreateLoot(m_lootSpawns[i]))
+			placed++;
+	}
+
+	return placed;
+}
+
+void CHalfLifeCrowbarHunt::PrintLootTable()
+{
+	if (!m_bLootSpawnsResolved)
+		ResolveLootSpawns();
+
+	if (m_numLootSpawns == 0)
+	{
+		ALERT(at_console, "No loot spawns on this map (no ch_loot_spawn entities and no maps/%s_loot.txt)\n", STRING(gpGlobals->mapname));
+		return;
+	}
+
+	ALERT(at_console, "%d loot spawn%s:\n", m_numLootSpawns, m_numLootSpawns == 1 ? "" : "s");
+
+	for (int i = 0; i < m_numLootSpawns; i++)
+	{
+		const CHLootSpawn& spawn = m_lootSpawns[i];
+		const bool occupied = static_cast<CBaseEntity*>(m_lootSpawns[i].hLoot) != nullptr;
+
+		ALERT(at_console, "  %3d  %8.1f %8.1f %8.1f  %s%s\n", i + 1,
+			spawn.vecOrigin.x, spawn.vecOrigin.y, spawn.vecOrigin.z,
+			STRING(spawn.iszModel), occupied ? "  [loot present]" : "");
+	}
 }
 
 bool CHalfLifeCrowbarHunt::CollectLoot(CBasePlayer* pPlayer)
@@ -1879,7 +1955,33 @@ bool CHalfLifeCrowbarHunt::ClientCommand(CBasePlayer* pPlayer, const char* pcmd)
 	if (CHalfLifeMultiplay::ClientCommand(pPlayer, pcmd))
 		return true;
 
-	if (!pPlayer || !FStrEq(pcmd, "menuselect"))
+	if (!pPlayer)
+		return false;
+
+	// "setpos x y z" - teleport to a coordinate, for checking loot spots
+	// against the ones "status" printed. A cheat, so it needs sv_cheats.
+	if (FStrEq(pcmd, "setpos"))
+	{
+		if (CVAR_GET_FLOAT("sv_cheats") == 0)
+		{
+			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, "setpos: sv_cheats is off\n");
+			return true;
+		}
+
+		if (CMD_ARGC() < 4)
+		{
+			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, "usage: setpos <x> <y> <z>\n");
+			return true;
+		}
+
+		const Vector vecPos(atof(CMD_ARGV(1)), atof(CMD_ARGV(2)), atof(CMD_ARGV(3)));
+
+		pPlayer->pev->velocity = g_vecZero;
+		UTIL_SetOrigin(pPlayer->pev, vecPos);
+		return true;
+	}
+
+	if (!FStrEq(pcmd, "menuselect"))
 		return false;
 
 	const int index = ENTINDEX(pPlayer->edict());
