@@ -248,6 +248,10 @@ private:
 	// Zero every count and tell everyone so - the start of a deal.
 	void ClearLootCounts();
 
+	// A player just crossed a ch_loot_reward threshold: arm them, or if they
+	// are armed (or barred from arming) put the gun on the floor beside them.
+	void AwardLootRevolver(CBasePlayer* pPlayer);
+
 	// --- map reset ---
 	void        TakeMapSnapshot();  // record spawn state of resettable entities (once per map)
 	void        ResetMapEntities(); // put the world back the way the map loaded
@@ -440,6 +444,15 @@ private:
 
 	// Loot collected this round, indexed like m_playerRoles and cleared with it.
 	int m_iLootCount[MAX_PLAYERS + 1];
+
+	// Revolvers bought with it this round, same indexing. The next one comes at
+	// (this + 1) * ch_loot_reward pieces; for the Killer, one at twice the price.
+	int m_iLootRewards[MAX_PLAYERS + 1];
+
+	// Set only for the moment AwardLootRevolver() is handing the Killer their
+	// bought gun, so CanHavePlayerItem() lets that one through and no other -
+	// the Hunter's dropped revolver stays off-limits to them either way.
+	bool m_bGrantingKillerGun;
 };
 
 // The running Crowbar Hunt rules, or null if some other mode is installed.

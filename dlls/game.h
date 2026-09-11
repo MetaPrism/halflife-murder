@@ -85,6 +85,15 @@ extern cvar_t ch_round_time;
 extern cvar_t ch_loot_interval;
 extern cvar_t ch_loot_max;
 
+// Every this many pieces of loot collected in a round buys a revolver: handed
+// over if the collector has none, dropped at their feet if they do. 0 makes
+// loot worth nothing but the number.
+extern cvar_t ch_loot_reward;
+
+// 1 lets the Killer buy in too: one revolver, once a round, for twice the
+// price. Off by default - a Killer who can shoot stops being the Killer.
+extern cvar_t ch_loot_killer_gun;
+
 // Anonymous mode: every round, each player is given a random colour and a
 // random name off the names file, so nobody can be picked out of a round by
 // the name or the colours they usually play under. Their model choice is left

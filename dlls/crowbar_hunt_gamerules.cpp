@@ -283,6 +283,7 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	m_numLootSpawns       = CH_LoadLootFile(m_lootSpawns, CH_MAX_LOOT_SPAWNS);
 	m_bLootSpawnsResolved = false;
 	m_flNextLootSpawn     = 0.0f;
+	m_bGrantingKillerGun  = false;
 
 	// Announce straight away the first time we tick in WaitingForPlayers.
 	m_flNextWaitingAnnounce = 0.0f;
@@ -826,10 +827,70 @@ bool CHalfLifeCrowbarHunt::CollectLoot(CBasePlayer* pPlayer)
 	if (role == CHRole::Unassigned || role == CHRole::Spectator)
 		return false;
 
-	m_iLootCount[ENTINDEX(pPlayer->edict())]++;
+	const int index = ENTINDEX(pPlayer->edict());
+
+	m_iLootCount[index]++;
 	SendLootCount(pPlayer);
 
+	const int reward = static_cast<int>(ch_loot_reward.value);
+
+	if (reward <= 0)
+		return true;
+
+	// Survivors buy a revolver every ch_loot_reward pieces. The Killer, if the
+	// server allows it at all, buys one only - at double the price.
+	int threshold;
+
+	if (GetPlayerRole(pPlayer) == CHRole::Killer)
+		threshold = (ch_loot_killer_gun.value != 0 && m_iLootRewards[index] == 0) ? reward * 2 : 0;
+	else
+		threshold = (m_iLootRewards[index] + 1) * reward;
+
+	if (threshold > 0 && m_iLootCount[index] >= threshold)
+	{
+		m_iLootRewards[index]++;
+		AwardLootRevolver(pPlayer);
+	}
+
 	return true;
+}
+
+void CHalfLifeCrowbarHunt::AwardLootRevolver(CBasePlayer* pPlayer)
+{
+	// The Killer's one purchase goes straight into their hands: CollectLoot()
+	// only sends them here with ch_loot_killer_gun on, and the role gate in
+	// CanHavePlayerItem() is opened for exactly this call. Never the floor -
+	// a gun beside the Killer is a gun for whoever they are chasing.
+	if (GetPlayerRole(pPlayer) == CHRole::Killer)
+	{
+		m_bGrantingKillerGun = true;
+		pPlayer->GiveNamedItem("weapon_357");
+		m_bGrantingKillerGun = false;
+
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Your loot bought a revolver.\n");
+		return;
+	}
+
+	// Into the hands if they are empty and allowed to fill; a punished shooter
+	// is barred from rearming, so theirs goes on the floor for the duration.
+	if (!pPlayer->HasNamedPlayerItem("weapon_357") && !IsPunished(pPlayer))
+	{
+		pPlayer->GiveNamedItem("weapon_357");
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Your loot bought a revolver.\n");
+		return;
+	}
+
+	CBaseEntity* pGun = CBaseEntity::Create("weapon_357", pPlayer->pev->origin, pPlayer->pev->angles);
+
+	if (!pGun)
+		return;
+
+	// A map weapon respawns twenty seconds after it is taken; this one is a
+	// one-off, the same as the dead Hunter's.
+	pGun->pev->spawnflags |= SF_NORESPAWN;
+	CH_SetWeaponGlow(pGun, CHWeaponGlow::Revolver);
+
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Your loot bought a revolver - it's at your feet.\n");
 }
 
 void CHalfLifeCrowbarHunt::SendLootCount(CBasePlayer* pPlayer) const
@@ -842,7 +903,10 @@ void CHalfLifeCrowbarHunt::SendLootCount(CBasePlayer* pPlayer) const
 void CHalfLifeCrowbarHunt::ClearLootCounts()
 {
 	for (int i = 0; i <= MAX_PLAYERS; i++)
+	{
 		m_iLootCount[i] = 0;
+		m_iLootRewards[i] = 0;
+	}
 
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
@@ -1290,6 +1354,7 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_iSentSpectator[index] = -1;
 	m_flSpectatePromptExpires[index] = 0.0f;
 	m_iLootCount[index] = 0;
+	m_iLootRewards[index] = 0;
 
 	// A fresh slot draws at full odds. This does mean a player who reconnects
 	// sheds whatever repeat-suppression they had built up; the alternative is
@@ -1473,8 +1538,10 @@ bool CHalfLifeCrowbarHunt::FPlayerCanTakeDamage(CBasePlayer* pPlayer, CBaseEntit
 		// What the shooter is holding is what identifies the shot: this hook
 		// sees every source of damage, and only the revolver is being policed.
 		// The Killer's crowbar - thrown or swung - is the round working as
-		// intended, and so is a Survivor pushing someone off a ledge.
-		if (pShooter->m_pActiveItem &&
+		// intended, and so is a Survivor pushing someone off a ledge. So is a
+		// Killer shooting with the revolver loot bought them: the penalty is
+		// for guessing wrong, and the Killer is never guessing.
+		if (pShooter->m_pActiveItem && GetPlayerRole(pShooter) != CHRole::Killer &&
 			FStrEq(STRING(pShooter->m_pActiveItem->pev->classname), "weapon_357"))
 			PunishShooter(pShooter);
 	}
@@ -1743,7 +1810,8 @@ bool CHalfLifeCrowbarHunt::CanHavePlayerItem(CBasePlayer* pPlayer, CBasePlayerIt
 	if (m_roundState != CHRoundState::InProgress)
 		return false;
 
-	if (pPlayer && pItem && !RoleCanCarryWeapon(GetPlayerRole(pPlayer), STRING(pItem->pev->classname)))
+	if (pPlayer && pItem && !RoleCanCarryWeapon(GetPlayerRole(pPlayer), STRING(pItem->pev->classname)) &&
+		!(m_bGrantingKillerGun && FStrEq(STRING(pItem->pev->classname), "weapon_357")))
 		return false;
 
 	// While the penalty is running the shooter can't rearm - not with the gun
@@ -1958,26 +2026,50 @@ bool CHalfLifeCrowbarHunt::ClientCommand(CBasePlayer* pPlayer, const char* pcmd)
 	if (!pPlayer)
 		return false;
 
-	// "setpos x y z" - teleport to a coordinate, for checking loot spots
-	// against the ones "status" printed. A cheat, so it needs sv_cheats.
-	if (FStrEq(pcmd, "setpos"))
+	// "setpos x y z" and "setang pitch yaw [roll]" - teleport, and turn to
+	// face a direction, for checking loot spots against what "status" printed.
+	// Cheats, so both need sv_cheats.
+	const bool setpos = FStrEq(pcmd, "setpos");
+	const bool setang = FStrEq(pcmd, "setang");
+
+	if (setpos || setang)
 	{
 		if (CVAR_GET_FLOAT("sv_cheats") == 0)
 		{
-			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, "setpos: sv_cheats is off\n");
+			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, UTIL_VarArgs("%s: sv_cheats is off\n", pcmd));
 			return true;
 		}
 
-		if (CMD_ARGC() < 4)
+		if (setpos)
 		{
-			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, "usage: setpos <x> <y> <z>\n");
+			if (CMD_ARGC() < 4)
+			{
+				ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, "usage: setpos <x> <y> <z>\n");
+				return true;
+			}
+
+			const Vector vecPos(atof(CMD_ARGV(1)), atof(CMD_ARGV(2)), atof(CMD_ARGV(3)));
+
+			pPlayer->pev->velocity = g_vecZero;
+			UTIL_SetOrigin(pPlayer->pev, vecPos);
 			return true;
 		}
 
-		const Vector vecPos(atof(CMD_ARGV(1)), atof(CMD_ARGV(2)), atof(CMD_ARGV(3)));
+		if (CMD_ARGC() < 3)
+		{
+			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, "usage: setang <pitch> <yaw> [roll]\n");
+			return true;
+		}
 
-		pPlayer->pev->velocity = g_vecZero;
-		UTIL_SetOrigin(pPlayer->pev, vecPos);
+		const Vector vecAngles(atof(CMD_ARGV(1)), atof(CMD_ARGV(2)), CMD_ARGC() > 3 ? atof(CMD_ARGV(3)) : 0.0);
+
+		// v_angle is the view; angles is the body (pitch stored a third and
+		// negated, the way the movement code keeps it); fixangle makes the
+		// engine push the new view to the client, which otherwise owns it.
+		pPlayer->pev->v_angle = vecAngles;
+		pPlayer->pev->angles = vecAngles;
+		pPlayer->pev->angles.x = -vecAngles.x / 3.0f;
+		pPlayer->pev->fixangle = 1;
 		return true;
 	}
 
