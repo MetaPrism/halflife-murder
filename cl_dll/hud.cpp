@@ -311,11 +311,14 @@ int __MsgFunc_CHClearFX(const char* pszName, int iSize, void* pbuf)
 
 	for (const char* name : decalNames)
 	{
-		// R_DecalRemoveAll wants the decal-list index (what IndexFromName
-		// returns), not the texture number Draw_DecalIndex would map it to.
-		const int index = gEngfuncs.pEfxAPI->Draw_DecalIndexFromName(const_cast<char*>(name));
-		if (index >= 0)
-			gEngfuncs.pEfxAPI->R_DecalRemoveAll(index);
+		// Same index space R_DecalShoot takes (see EV_HLDM_GunshotDecalTrace):
+		// the name index run through Draw_DecalIndex, which also loads the
+		// decal if this client has never placed one.
+		const int nameIndex = gEngfuncs.pEfxAPI->Draw_DecalIndexFromName(const_cast<char*>(name));
+		if (nameIndex < 0)
+			continue;
+
+		gEngfuncs.pEfxAPI->R_DecalRemoveAll(gEngfuncs.pEfxAPI->Draw_DecalIndex(nameIndex));
 	}
 
 	return 1;

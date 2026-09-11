@@ -626,6 +626,8 @@ void CHalfLifeCrowbarHunt::ResetMapEntities()
 
 	// Decals (blood, bullet holes) are client-side only and nothing the server
 	// does to the map touches them, so tell every client to wipe its own.
+	// (The engine's r_cleardecals command would do it too, but the Half-Life
+	// engine build doesn't have it - it's a Counter-Strike addition.)
 	MESSAGE_BEGIN(MSG_ALL, gmsgCHClearFX, nullptr);
 	MESSAGE_END();
 

@@ -480,7 +480,7 @@ cvar_t ch_loot_max = {"ch_loot_max", "8", FCVAR_SERVER};
 cvar_t ch_loot_reward = {"ch_loot_reward", "5", FCVAR_SERVER};
 cvar_t ch_loot_killer_gun = {"ch_loot_killer_gun", "0", FCVAR_SERVER};
 
-cvar_t ch_anonymous = {"ch_anonymous", "0", FCVAR_SERVER};
+cvar_t ch_anonymous = {"ch_anonymous", "1", FCVAR_SERVER};
 
 cvar_t ch_killer_decay = {"ch_killer_decay", "0.25", FCVAR_SERVER};
 cvar_t ch_killer_recover = {"ch_killer_recover", "0.25", FCVAR_SERVER};
