@@ -128,6 +128,12 @@ public:
 	// them back, so CBreakable::Die() must not free their edict.
 	bool ShouldPreserveBrokenEntities() override { return true; }
 
+	// Armour is not part of the game - there is no loadout that has it and the
+	// map's batteries are removed - so the wall chargers are spawned drained
+	// and never refill. They still hum and deny like a used-up one would.
+	bool AllowHEVChargers() override { return false; }
+	float FlHEVChargerRechargeTime() override { return 0; }
+
 	// A player who asks to spectate stays a spectator through the round resets
 	// that would otherwise respawn them, until they ask to come back. Leaving a
 	// live round asks for confirmation first (a ShowMenu prompt); the answer
@@ -218,7 +224,7 @@ private:
 	// --- map reset ---
 	void        TakeMapSnapshot();  // record spawn state of resettable entities (once per map)
 	void        ResetMapEntities(); // put the world back the way the map loaded
-	static void RemoveRoundLitter(); // gibs, corpsebags, live ordnance, map guns
+	static void RemoveRoundLitter(); // gibs, corpsebags, live ordnance, map guns/ammo/batteries/longjumps
 
 	// --- per-slot state ---
 	// Forget everything this mode knows about one client slot. Every array

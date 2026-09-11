@@ -119,6 +119,12 @@ const char* const g_szLitterClassnames[] = {
 	"laser_spot",
 };
 
+// Map pickups other than guns and ammo that are kept out of play.
+const char* const g_szMapItemClassnames[] = {
+	"item_battery",
+	"item_longjump",
+};
+
 template <int SIZE>
 bool ClassnameInList(const char* pszClassname, const char* const (&list)[SIZE])
 {
@@ -577,8 +583,9 @@ void CHalfLifeCrowbarHunt::ResetMapEntities()
 	}
 }
 
-// Sweep up what the last round left lying around, and keep the map's own guns
-// out of play - a Survivor picking up an MP5 would undo the whole premise.
+// Sweep up what the last round left lying around, and keep the map's own guns,
+// ammo, batteries and long jump modules out of play - a Survivor picking up an
+// MP5 would undo the whole premise.
 void CHalfLifeCrowbarHunt::RemoveRoundLitter()
 {
 	for (int i = gpGlobals->maxClients + 1; i < gpGlobals->maxEntities; i++)
@@ -605,7 +612,11 @@ void CHalfLifeCrowbarHunt::RemoveRoundLitter()
 		// only the ones lying in the world get taken.
 		const bool isLooseWeapon = FNullEnt(pEdict->v.owner) && (0 == strncmp(pszClassname, "weapon_", 7) || 0 == strncmp(pszClassname, "ammo_", 5));
 
-		if (!isLooseWeapon && !ClassnameInList(pszClassname, g_szLitterClassnames))
+		// Batteries and long jump modules go the same way: armour would blunt
+		// the crowbar and a long jump outruns it. Health kits stay.
+		const bool isMapItem = ClassnameInList(pszClassname, g_szMapItemClassnames);
+
+		if (!isLooseWeapon && !isMapItem && !ClassnameInList(pszClassname, g_szLitterClassnames))
 			continue;
 
 		CBaseEntity* pEntity = CBaseEntity::Instance(pEdict);
@@ -1072,6 +1083,8 @@ bool CHalfLifeCrowbarHunt::ClientConnected(edict_t* pEntity, const char* pszName
 	return CHalfLifeMultiplay::ClientConnected(pEntity, pszName, pszAddress, szRejectReason);
 }
 
+static void CH_DropRevolver(CBasePlayer* pPlayer);
+
 void CHalfLifeCrowbarHunt::ClientDisconnected(edict_t* pClient)
 {
 	// First: the base class writes the disconnect log line, and it reads the
@@ -1080,6 +1093,16 @@ void CHalfLifeCrowbarHunt::ClientDisconnected(edict_t* pClient)
 
 	if (!pClient)
 		return;
+
+	// A Hunter quitting mid-round would otherwise take the revolver out of the
+	// round with them: ClientDisconnect() never unpacks the inventory, and the
+	// drop in PlayerKilled() only fires for a death. Same box, same place, as
+	// if they had died on the spot. The edict is still fully populated here -
+	// only the disconnect log line has run before us.
+	CBasePlayer* pPlayer = static_cast<CBasePlayer*>(CBaseEntity::Instance(pClient));
+
+	if (pPlayer && pPlayer->IsAlive() && pPlayer->HasNamedPlayerItem("weapon_357"))
+		CH_DropRevolver(pPlayer);
 
 	ResetPlayerSlot(ENTINDEX(pClient));
 
@@ -1673,6 +1696,13 @@ void CHalfLifeCrowbarHunt::BecomeSpectator(CBasePlayer* pPlayer)
 		// camera, the same way it would a dead one. See MoveDeadPlayersToObserver().
 		if (IsPunished(pPlayer))
 			SetPunishTint(pPlayer, false);
+
+		// StartObserver() holsters but keeps the inventory, so a Hunter sitting
+		// out would carry the revolver into the camera and out of the round.
+		// The dead already dropped theirs in PlayerKilled(); this is the
+		// walking-out equivalent.
+		if (pPlayer->IsAlive() && pPlayer->HasNamedPlayerItem("weapon_357"))
+			CH_DropRevolver(pPlayer);
 
 		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
 	}

@@ -169,6 +169,10 @@ public:
 	// can be put back without a level restart. See CBreakable::Die().
 	virtual bool ShouldPreserveBrokenEntities() { return false; }
 
+	// Do func_recharge (HEV battery) chargers work at all? A mode that says no
+	// gets them spawned already drained. See CRecharge::Spawn().
+	virtual bool AllowHEVChargers() { return true; }
+
 	// May a player throw a weapon on the ground with the "drop" command? Modes
 	// that hand out fixed loadouts have to say no: dropping is a way to put a
 	// weapon in the hands of someone who is not meant to have one, and to

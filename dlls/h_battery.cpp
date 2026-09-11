@@ -95,6 +95,14 @@ void CRecharge::Spawn()
 	SET_MODEL(ENT(pev), STRING(pev->model));
 	m_iJuice = gSkillData.suitchargerCapacity;
 	pev->frame = 0;
+
+	// A mode that has no use for armour gets the charger spawned empty; with a
+	// FlHEVChargerRechargeTime() of 0 it then stays that way.
+	if (!g_pGameRules->AllowHEVChargers())
+	{
+		m_iJuice = 0;
+		pev->frame = 1;
+	}
 }
 
 void CRecharge::Precache()
