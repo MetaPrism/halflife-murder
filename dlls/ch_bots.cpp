@@ -39,10 +39,16 @@ static float g_flBotYaw[MAX_PLAYERS + 1] = {};
 static Vector g_vecBotLastOrigin[MAX_PLAYERS + 1] = {};
 static float g_flBotNextProgressCheck[MAX_PLAYERS + 1] = {};
 
+// When a bot stops making progress, it first tries a crouch jump in place -
+// that clears the low ledges and stair lips a flat wander can't - before
+// giving up on the yaw and picking a new one.
+static bool g_bBotJumping[MAX_PLAYERS + 1] = {};
+
 // How often a bot's progress is sampled, and how far it has to have travelled
 // in that time to count as still moving.
 constexpr float BOT_PROGRESS_INTERVAL = 0.3f;
 constexpr float BOT_PROGRESS_DISTANCE = 16.0f;
+constexpr float BOT_JUMP_ATTEMPT_DURATION = 0.5f;
 
 static void BotPickNewDirection(int index, CBaseEntity* pPlayer)
 {
@@ -158,6 +164,7 @@ static void BotAdd()
 	g_flBotYaw[index] = RANDOM_FLOAT(-180, 180);
 	g_vecBotLastOrigin[index] = pEdict->v.origin;
 	g_flBotNextProgressCheck[index] = gpGlobals->time + BOT_PROGRESS_INTERVAL;
+	g_bBotJumping[index] = false;
 
 	ALERT(at_console, "Added bot \"%s\"\n", name);
 }
@@ -235,10 +242,23 @@ void BotThink()
 		{
 			if ((pPlayer->pev->origin - g_vecBotLastOrigin[i]).Length2D() < BOT_PROGRESS_DISTANCE)
 			{
-				BotPickNewDirection(i, pPlayer);
+				if (!g_bBotJumping[i])
+				{
+					// Stuck for the first time on this yaw: try a crouch jump
+					// in place rather than immediately abandoning the direction.
+					g_bBotJumping[i] = true;
+					g_vecBotLastOrigin[i] = pPlayer->pev->origin;
+					g_flBotNextProgressCheck[i] = gpGlobals->time + BOT_JUMP_ATTEMPT_DURATION;
+				}
+				else
+				{
+					g_bBotJumping[i] = false;
+					BotPickNewDirection(i, pPlayer);
+				}
 			}
 			else
 			{
+				g_bBotJumping[i] = false;
 				g_vecBotLastOrigin[i] = pPlayer->pev->origin;
 				g_flBotNextProgressCheck[i] = gpGlobals->time + BOT_PROGRESS_INTERVAL;
 			}
@@ -251,7 +271,8 @@ void BotThink()
 		pPlayer->pev->v_angle = vecAngles;
 
 		const float flSpeed = pPlayer->pev->maxspeed > 0 ? pPlayer->pev->maxspeed : 240.0f;
+		const int buttons = g_bBotJumping[i] ? (IN_JUMP | IN_DUCK) : 0;
 
-		g_engfuncs.pfnRunPlayerMove(pPlayer->edict(), vecAngles, flSpeed, 0, 0, 0, 0, msec);
+		g_engfuncs.pfnRunPlayerMove(pPlayer->edict(), vecAngles, flSpeed, 0, 0, 0, buttons, msec);
 	}
 }

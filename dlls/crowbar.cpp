@@ -55,6 +55,12 @@ void CCrowbar::Precache()
 	PRECACHE_SOUND("weapons/cbar_hitbod3.wav");
 	PRECACHE_SOUND("weapons/cbar_miss1.wav");
 
+#ifndef CLIENT_DLL
+	// The thrown bar's own Precache() only runs when it is spawned, mid-round,
+	// which is too late to add anything new to the precache table.
+	UTIL_PrecacheOther("crowbar_thrown");
+#endif
+
 	m_usCrowbar = PRECACHE_EVENT(1, "events/crowbar.sc");
 }
 
@@ -143,6 +149,14 @@ constexpr float CROWBAR_THROW_LIFT = 100.0f;
 constexpr float CROWBAR_THROW_GRAVITY = 0.6f;
 constexpr float CROWBAR_THROW_SPIN = -1500.0f;
 
+// The trail the bar draws behind itself in flight: a TE_BEAMFOLLOW ribbon,
+// the same effect as the RPG rocket's smoke, tinted to match the bar's glow
+// shell. Life is in tenths of a second; short, so it reads as a streak that
+// fades right behind the bar rather than a smoke column hanging in the room.
+constexpr int CROWBAR_TRAIL_LIFE = 6;
+constexpr int CROWBAR_TRAIL_WIDTH = 3;
+constexpr int CROWBAR_TRAIL_BRIGHTNESS = 200;
+
 // The bar flies as an 8-unit cube but lands in the standard 32x32x16 weapon
 // pickup box - and the engine rounds that up again to one of its fixed
 // collision hulls, which is larger still. A bar that stops flush against a
@@ -184,8 +198,16 @@ private:
 	// take it (gone, dead, or already holding a crowbar).
 	bool GiveBackToThrower();
 
+	// Removes the bar, first detaching the trail from its edict. The client
+	// keeps a followed beam bound to the entity index, so without this a later
+	// entity that reuses the slot would inherit the tail.
+	void RemoveBar();
+
 	EHANDLE m_hThrower;
+	static int m_iTrail;
 };
+
+int CCrowbarProjectile::m_iTrail = 0;
 
 LINK_ENTITY_TO_CLASS(crowbar_thrown, CCrowbarProjectile);
 
@@ -201,6 +223,7 @@ void CCrowbarProjectile::Precache()
 	PRECACHE_SOUND("weapons/cbar_hit1.wav");
 	PRECACHE_SOUND("weapons/cbar_hitbod1.wav");
 	PRECACHE_SOUND("items/gunpickup2.wav");
+	m_iTrail = PRECACHE_MODEL("sprites/smoke.spr");
 }
 
 void CCrowbarProjectile::Spawn()
@@ -237,6 +260,20 @@ CCrowbarProjectile* CCrowbarProjectile::Throw(CBasePlayer* pOwner, const Vector&
 	pBar->pev->velocity = vecVelocity;
 	pBar->pev->avelocity = Vector(CROWBAR_THROW_SPIN, 0, 0); // end over end
 	pBar->m_hThrower = pOwner;
+
+	// The trail stops growing on its own once the bar comes to rest, so there
+	// is nothing to switch off at Land(); the tail just fades out behind it.
+	MESSAGE_BEGIN(MSG_BROADCAST, SVC_TEMPENTITY);
+	WRITE_BYTE(TE_BEAMFOLLOW);
+	WRITE_SHORT(pBar->entindex());
+	WRITE_SHORT(m_iTrail);
+	WRITE_BYTE(CROWBAR_TRAIL_LIFE);
+	WRITE_BYTE(CROWBAR_TRAIL_WIDTH);
+	WRITE_BYTE(200); // r, g, b: the crowbar glow colour from CH_SetWeaponGlow()
+	WRITE_BYTE(20);
+	WRITE_BYTE(20);
+	WRITE_BYTE(CROWBAR_TRAIL_BRIGHTNESS);
+	MESSAGE_END();
 
 	// The bar finds its own way home after a while, so a throw that sails off a
 	// cliff does not leave the Killer permanently unarmed. The clock starts now,
@@ -380,7 +417,7 @@ bool CCrowbarProjectile::GiveBackToThrower()
 	pPlayer->GiveNamedItem("weapon_crowbar");
 	EMIT_SOUND(ENT(pPlayer->pev), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
 
-	UTIL_Remove(this);
+	RemoveBar();
 	return true;
 }
 
@@ -391,6 +428,16 @@ void CCrowbarProjectile::ReturnThink()
 
 	// The thrower is dead, gone, or somehow already armed - the bar is nobody's
 	// pickup any more, so it just disappears.
+	RemoveBar();
+}
+
+void CCrowbarProjectile::RemoveBar()
+{
+	MESSAGE_BEGIN(MSG_BROADCAST, SVC_TEMPENTITY);
+	WRITE_BYTE(TE_KILLBEAM);
+	WRITE_SHORT(entindex());
+	MESSAGE_END();
+
 	UTIL_Remove(this);
 }
 
