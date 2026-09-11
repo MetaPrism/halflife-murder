@@ -79,6 +79,12 @@ extern cvar_t ch_punish_tint;
 // wins outright.
 extern cvar_t ch_round_time;
 
+// Loot: how many seconds apart pieces appear during a live round (0 turns
+// loot off), and how many may lie uncollected at once before spawning pauses.
+// Where they appear is the map's business - see crowbar_hunt_loot.h.
+extern cvar_t ch_loot_interval;
+extern cvar_t ch_loot_max;
+
 // Anonymous mode: every round, each player is given a random colour and a
 // random name off the names file, so nobody can be picked out of a round by
 // the name or the colours they usually play under. Their model choice is left

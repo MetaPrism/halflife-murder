@@ -63,6 +63,10 @@ inline int gmsgCHAnon = 0;
 // off the HUD. The client counts down from there on its own.
 inline int gmsgCHTimer = 0;
 
+// Crowbar Hunt: how much loot the player has collected this round. Its
+// arrival is also what swaps the HUD's armour readout for the loot one.
+inline int gmsgCHLoot = 0;
+
 // Crowbar Hunt: which players are observers, so the scoreboard can file them
 // under Spectators. The base SDK client already handles this message
 // (MsgFunc_Spectator) but nothing server-side ever registered or sent it.

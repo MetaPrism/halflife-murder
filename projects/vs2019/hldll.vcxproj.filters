@@ -111,6 +111,9 @@
     <ClCompile Include="..\..\dlls\crowbar_hunt_gamerules.cpp">
       <Filter>Source Files\dlls</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\dlls\crowbar_hunt_loot.cpp">
+      <Filter>Source Files\dlls</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\dlls\defaultai.cpp">
       <Filter>Source Files\dlls</Filter>
     </ClCompile>
@@ -438,6 +441,9 @@
       <Filter>Header Files\dlls</Filter>
     </ClInclude>
     <ClInclude Include="..\..\dlls\crowbar_hunt_gamerules.h">
+      <Filter>Header Files\dlls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dlls\crowbar_hunt_loot.h">
       <Filter>Header Files\dlls</Filter>
     </ClInclude>
     <ClInclude Include="..\..\dlls\gamerules.h">

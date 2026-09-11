@@ -72,6 +72,7 @@ target_sources(client PRIVATE
 	cdll_int.cpp
 	com_weapons.cpp
 	ch_timer.cpp
+	ch_loot.cpp
 	death.cpp
 	demo.cpp
 	entity.cpp

@@ -410,6 +410,28 @@ private:
 	float m_flEndTime; // gHUD.m_flTime the round is called at; 0 while no clock is running
 };
 
+//
+//-----------------------------------------------------
+//
+
+// Crowbar Hunt loot counter, drawn in the armour readout's place. See
+// ch_loot.cpp.
+class CHudCHLoot : public CHudBase
+{
+public:
+	bool Init() override;
+	bool VidInit() override;
+	void InitHUDData() override;
+	bool Draw(float flTime) override;
+	bool MsgFunc_CHLoot(const char* pszName, int iSize, void* pbuf);
+
+private:
+	int m_iCount;
+	int m_iSpriteIndex; // "ch_loot" from hud.txt, or the suit icon standing in; -1 for neither
+	HSPRITE m_hSprite;
+	float m_fFade;
+};
+
 class CHudTextMessage : public CHudBase
 {
 public:
@@ -597,6 +619,7 @@ public:
 	CHudTextMessage m_TextMessage;
 	CHudStatusIcons m_StatusIcons;
 	CHudCHTimer m_CHTimer;
+	CHudCHLoot m_CHLoot;
 
 	void Init();
 	void VidInit();

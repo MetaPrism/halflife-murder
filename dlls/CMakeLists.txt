@@ -35,6 +35,7 @@ target_sources(hl PRIVATE
 	crowbar.cpp
 	ch_bots.cpp
 	crowbar_hunt_gamerules.cpp
+	crowbar_hunt_loot.cpp
 	defaultai.cpp
 	doors.cpp
 	effects.cpp
@@ -147,6 +148,7 @@ target_sources(hl PRIVATE
 	func_break.h
 	ch_bots.h
 	crowbar_hunt_gamerules.h
+	crowbar_hunt_loot.h
 	gamerules.h
 	hornet.h
 	items.h

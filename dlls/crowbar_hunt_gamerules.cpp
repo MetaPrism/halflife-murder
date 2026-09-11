@@ -105,6 +105,7 @@ const char* const g_szResettableClassnames[] = {
 const char* const g_szLitterClassnames[] = {
 	"gib",
 	"ch_corpse",
+	"ch_loot",
 	"weaponbox",
 	"grenade",
 	"crowbar_thrown",
@@ -123,6 +124,7 @@ const char* const g_szLitterClassnames[] = {
 const char* const g_szMapItemClassnames[] = {
 	"item_battery",
 	"item_longjump",
+	"item_healthkit",
 };
 
 template <int SIZE>
@@ -183,6 +185,11 @@ namespace
 CHalfLifeCrowbarHunt* g_pCrowbarHuntRules = nullptr;
 }
 
+CHalfLifeCrowbarHunt* CH_GetCrowbarHuntRules()
+{
+	return g_pCrowbarHuntRules == g_pGameRules ? g_pCrowbarHuntRules : nullptr;
+}
+
 // "ch_odds" - print each player's current share of the Killer draw.
 //
 // Server console only, deliberately: the weights are a record of who has been
@@ -241,6 +248,12 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	m_numSnapshots      = 0;
 	m_bSnapshotTaken    = false;
 
+	// From here, inside CWorld::Precache(), so the file's models can still be
+	// precached. The map's own markers are picked up later - see Think().
+	m_numLootSpawns       = CH_LoadLootFile(m_lootSpawns, CH_MAX_LOOT_SPAWNS);
+	m_bLootSpawnsResolved = false;
+	m_flNextLootSpawn     = 0.0f;
+
 	// Announce straight away the first time we tick in WaitingForPlayers.
 	m_flNextWaitingAnnounce = 0.0f;
 
@@ -272,6 +285,10 @@ void CHalfLifeCrowbarHunt::Think()
 	// map's guns out straight away.
 	if (!m_bSnapshotTaken)
 		ResetMapEntities();
+
+	// Same moment, same reason: the map's ch_loot_spawn markers exist now.
+	if (!m_bLootSpawnsResolved)
+		ResolveLootSpawns();
 
 	// A round needs bodies in it. If players drop out mid-round and take us
 	// below the minimum, abort straight back to WaitingForPlayers instead of
@@ -307,6 +324,9 @@ void CHalfLifeCrowbarHunt::Think()
 		// that death decided the round.
 		MoveDeadPlayersToObserver();
 		CheckRoundWinConditions();
+
+		if (m_roundState == CHRoundState::InProgress)
+			ServiceLootSpawns();
 
 		// The Killer ran out the clock: everyone still standing has survived.
 		// After the win check, so a kill that lands on the final frame still
@@ -379,6 +399,9 @@ void CHalfLifeCrowbarHunt::StartPreRound()
 void CHalfLifeCrowbarHunt::StartRound()
 {
 	SetRoundState(CHRoundState::InProgress);
+
+	// The first piece of loot arrives one interval in, not at the whistle.
+	m_flNextLootSpawn = gpGlobals->time + ch_loot_interval.value;
 
 	// Hand out weapons the instant the round goes live rather than at spawn
 	// time, so nobody is armed during the countdown.
@@ -624,7 +647,7 @@ void CHalfLifeCrowbarHunt::ResetMapEntities()
 }
 
 // Sweep up what the last round left lying around, and keep the map's own guns,
-// ammo, batteries and long jump modules out of play - a Survivor picking up an
+// ammo, batteries, long jump modules and medkits out of play - a Survivor picking up an
 // MP5 would undo the whole premise.
 void CHalfLifeCrowbarHunt::RemoveRoundLitter()
 {
@@ -652,8 +675,9 @@ void CHalfLifeCrowbarHunt::RemoveRoundLitter()
 		// only the ones lying in the world get taken.
 		const bool isLooseWeapon = FNullEnt(pEdict->v.owner) && (0 == strncmp(pszClassname, "weapon_", 7) || 0 == strncmp(pszClassname, "ammo_", 5));
 
-		// Batteries and long jump modules go the same way: armour would blunt
-		// the crowbar and a long jump outruns it. Health kits stay.
+		// Batteries, long jump modules and health kits go the same way: armour
+		// would blunt the crowbar, a long jump outruns it, and with one-hit
+		// kills a medkit is nothing but a decoy - loot is the only pickup.
 		const bool isMapItem = ClassnameInList(pszClassname, g_szMapItemClassnames);
 
 		if (!isLooseWeapon && !isMapItem && !ClassnameInList(pszClassname, g_szLitterClassnames))
@@ -663,6 +687,93 @@ void CHalfLifeCrowbarHunt::RemoveRoundLitter()
 
 		if (pEntity)
 			UTIL_Remove(pEntity);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Loot
+// ---------------------------------------------------------------------------
+void CHalfLifeCrowbarHunt::ResolveLootSpawns()
+{
+	m_bLootSpawnsResolved = true;
+
+	const int numFromMap = CH_CollectLootSpawnEntities(m_lootSpawns, CH_MAX_LOOT_SPAWNS);
+
+	if (numFromMap > 0)
+	{
+		if (m_numLootSpawns > 0)
+			ALERT(at_console, "Crowbar Hunt: map has its own ch_loot_spawn markers, ignoring the loot file\n");
+
+		m_numLootSpawns = numFromMap;
+	}
+
+	ALERT(at_console, "Crowbar Hunt: %d loot spawn%s on this map\n", m_numLootSpawns, m_numLootSpawns == 1 ? "" : "s");
+}
+
+void CHalfLifeCrowbarHunt::ServiceLootSpawns()
+{
+	if (ch_loot_interval.value <= 0.0f || m_numLootSpawns == 0)
+		return;
+
+	if (gpGlobals->time < m_flNextLootSpawn)
+		return;
+
+	m_flNextLootSpawn = gpGlobals->time + ch_loot_interval.value;
+
+	// The empty spots, and how much is already lying around. A handle goes
+	// null on its own when the piece is picked up or swept.
+	int freeSpots[CH_MAX_LOOT_SPAWNS];
+	int numFree = 0;
+	int numLive = 0;
+
+	for (int i = 0; i < m_numLootSpawns; i++)
+	{
+		if (static_cast<CBaseEntity*>(m_lootSpawns[i].hLoot) != nullptr)
+			numLive++;
+		else
+			freeSpots[numFree++] = i;
+	}
+
+	if (numFree == 0 || numLive >= static_cast<int>(ch_loot_max.value))
+		return;
+
+	CH_CreateLoot(m_lootSpawns[freeSpots[RANDOM_LONG(0, numFree - 1)]]);
+}
+
+bool CHalfLifeCrowbarHunt::CollectLoot(CBasePlayer* pPlayer)
+{
+	if (m_roundState != CHRoundState::InProgress || !pPlayer->IsAlive())
+		return false;
+
+	const CHRole role = GetPlayerRole(pPlayer);
+
+	if (role == CHRole::Unassigned || role == CHRole::Spectator)
+		return false;
+
+	m_iLootCount[ENTINDEX(pPlayer->edict())]++;
+	SendLootCount(pPlayer);
+
+	return true;
+}
+
+void CHalfLifeCrowbarHunt::SendLootCount(CBasePlayer* pPlayer) const
+{
+	MESSAGE_BEGIN(MSG_ONE, gmsgCHLoot, nullptr, pPlayer->edict());
+	WRITE_SHORT(m_iLootCount[ENTINDEX(pPlayer->edict())]);
+	MESSAGE_END();
+}
+
+void CHalfLifeCrowbarHunt::ClearLootCounts()
+{
+	for (int i = 0; i <= MAX_PLAYERS; i++)
+		m_iLootCount[i] = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+
+		if (pPlayer)
+			SendLootCount(pPlayer);
 	}
 }
 
@@ -687,6 +798,9 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 	// A penalty belongs to the round it was earned in - carrying one over would
 	// hand somebody a crippled Killer through no fault of their own.
 	ClearPunishments();
+
+	// So does a loot haul.
+	ClearLootCounts();
 
 	// New round, new faces. Deliberately not done in ResetForNextRound(): the
 	// disguises stay on between rounds so nobody's real name flashes up on the
@@ -1099,6 +1213,7 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_flSendServerName[index] = 0.0f;
 	m_iSentSpectator[index] = -1;
 	m_flSpectatePromptExpires[index] = 0.0f;
+	m_iLootCount[index] = 0;
 
 	// A fresh slot draws at full odds. This does mean a player who reconnects
 	// sheds whatever repeat-suppression they had built up; the alternative is
@@ -1410,10 +1525,19 @@ void CH_SetWeaponGlow(CBaseEntity* pEntity, CHWeaponGlow weapon)
 
 	pEntity->pev->renderfx = kRenderFxGlowShell;
 	pEntity->pev->renderamt = thickness;
-	if (weapon == CHWeaponGlow::Crowbar)
+
+	switch (weapon)
+	{
+	case CHWeaponGlow::Crowbar:
 		pEntity->pev->rendercolor = Vector(200, 20, 20);
-	else
+		break;
+	case CHWeaponGlow::Revolver:
 		pEntity->pev->rendercolor = Vector(20, 60, 220);
+		break;
+	case CHWeaponGlow::Loot:
+		pEntity->pev->rendercolor = Vector(20, 200, 40);
+		break;
+	}
 }
 
 // Drop the Hunter's revolver so it can be inherited.
@@ -2242,6 +2366,10 @@ void CHalfLifeCrowbarHunt::ServiceServerNameSend(CBasePlayer* pPlayer)
 	// start of the round, which this client wasn't around for.
 	if (m_flRoundTimeLimit != 0.0f)
 		SendRoundTimer(pPlayer->edict());
+
+	// And the loot count, which is what puts the loot readout on the HUD in
+	// place of the armour one - even a zero.
+	SendLootCount(pPlayer);
 
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{

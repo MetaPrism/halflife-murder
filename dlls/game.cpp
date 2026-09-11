@@ -475,6 +475,9 @@ cvar_t ch_punish_tint = {"ch_punish_tint", "200", FCVAR_SERVER};
 
 cvar_t ch_round_time = {"ch_round_time", "300", FCVAR_SERVER};
 
+cvar_t ch_loot_interval = {"ch_loot_interval", "15", FCVAR_SERVER};
+cvar_t ch_loot_max = {"ch_loot_max", "8", FCVAR_SERVER};
+
 cvar_t ch_anonymous = {"ch_anonymous", "0", FCVAR_SERVER};
 
 cvar_t ch_killer_decay = {"ch_killer_decay", "0.25", FCVAR_SERVER};
@@ -555,6 +558,8 @@ void GameDLLInit()
 	CVAR_REGISTER(&ch_punish_time);
 	CVAR_REGISTER(&ch_punish_tint);
 	CVAR_REGISTER(&ch_round_time);
+	CVAR_REGISTER(&ch_loot_interval);
+	CVAR_REGISTER(&ch_loot_max);
 	CVAR_REGISTER(&ch_anonymous);
 	CVAR_REGISTER(&ch_killer_decay);
 	CVAR_REGISTER(&ch_killer_recover);

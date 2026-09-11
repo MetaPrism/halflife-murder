@@ -16,6 +16,7 @@ a deathmatch server.
 #include "cdll_dll.h"	// MAX_PLAYERS
 #include "gamerules.h" // CHalfLifeMultiplay - reuse its respawn/HUD plumbing
 #include "crowbar_hunt_shared.h" // the anonymous-mode colour table
+#include "crowbar_hunt_loot.h"
 
 // Role a player currently holds for the round
 enum class CHRole
@@ -182,6 +183,10 @@ public:
 	// joins or dies, and a display that wants to show why wants both.
 	float GetKillerWeight(int index) const;
 
+	// A player walked into a piece of loot. Returns false to leave it lying
+	// there: outside a live round, or for anyone not playing this round.
+	bool CollectLoot(CBasePlayer* pPlayer);
+
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
 	bool        IsCoOp() override { return false; }
@@ -221,10 +226,25 @@ private:
 	// otherwise, so every path that ends a penalty has to turn it off.
 	static void SetPunishTint(CBasePlayer* pPlayer, bool bOn);
 
+	// --- loot ---
+	// Once per map, after its entities have spawned: if the author placed
+	// ch_loot_spawn markers, they replace whatever the loot file gave us.
+	void ResolveLootSpawns();
+
+	// Every ch_loot_interval seconds of a live round, put a piece of loot on
+	// a random empty spot, up to ch_loot_max lying around at once.
+	void ServiceLootSpawns();
+
+	// Push one player's count to their HUD.
+	void SendLootCount(CBasePlayer* pPlayer) const;
+
+	// Zero every count and tell everyone so - the start of a deal.
+	void ClearLootCounts();
+
 	// --- map reset ---
 	void        TakeMapSnapshot();  // record spawn state of resettable entities (once per map)
 	void        ResetMapEntities(); // put the world back the way the map loaded
-	static void RemoveRoundLitter(); // gibs, corpsebags, live ordnance, map guns/ammo/batteries/longjumps
+	static void RemoveRoundLitter(); // gibs, corpsebags, live ordnance, map guns/ammo/batteries/longjumps/medkits
 
 	// --- per-slot state ---
 	// Forget everything this mode knows about one client slot. Every array
@@ -400,16 +420,34 @@ private:
 	CHEntitySnapshot m_mapSnapshot[CH_MAX_TRACKED_ENTITIES];
 	int              m_numSnapshots;
 	bool             m_bSnapshotTaken;
+
+	// Where loot may appear on this map. Filled from the loot file by the
+	// constructor, then replaced by the map's own markers if it has any - see
+	// ResolveLootSpawns().
+	CHLootSpawn m_lootSpawns[CH_MAX_LOOT_SPAWNS];
+	int         m_numLootSpawns;
+	bool        m_bLootSpawnsResolved;
+
+	// gpGlobals->time of the next loot spawn while a round is live.
+	float m_flNextLootSpawn;
+
+	// Loot collected this round, indexed like m_playerRoles and cleared with it.
+	int m_iLootCount[MAX_PLAYERS + 1];
 };
 
-// Which of the two weapons a world-lying pickup is, for CH_SetWeaponGlow().
+// The running Crowbar Hunt rules, or null if some other mode is installed.
+// For entities that only exist under this mode and need to talk back to it.
+CHalfLifeCrowbarHunt* CH_GetCrowbarHuntRules();
+
+// Which kind of world-lying pickup this is, for CH_SetWeaponGlow().
 enum class CHWeaponGlow
 {
 	Crowbar, // red
 	Revolver, // blue
+	Loot, // green
 };
 
-// Put a coloured glow shell on a weapon that is lying in (or flying through)
-// the world, so players can tell a gun on the floor from the scenery. Safe to
-// call on any entity; does nothing when ch_glow_shell is 0.
+// Put a coloured glow shell on a pickup that is lying in (or flying through)
+// the world, so players can tell it from the scenery. Safe to call on any
+// entity; does nothing when ch_glow_shell is 0.
 void CH_SetWeaponGlow(CBaseEntity* pEntity, CHWeaponGlow weapon);

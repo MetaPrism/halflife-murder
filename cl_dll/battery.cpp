@@ -76,6 +76,10 @@ bool CHudBattery::Draw(float flTime)
 	if ((gHUD.m_iHideHUDDisplay & HIDEHUD_HEALTH) != 0)
 		return true;
 
+	// Crowbar Hunt draws its loot count in this slot instead.
+	if ((gHUD.m_CHLoot.m_iFlags & HUD_ACTIVE) != 0)
+		return true;
+
 	int r, g, b, x, y, a;
 	Rect rc;
 
