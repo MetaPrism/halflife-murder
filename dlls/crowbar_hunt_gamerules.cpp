@@ -435,8 +435,12 @@ void CHalfLifeCrowbarHunt::AbortRound()
 
 void CHalfLifeCrowbarHunt::ResetForNextRound()
 {
+	// Spectator survives the wipe - see the same exception in AssignRoles().
 	for (int i = 0; i <= MAX_PLAYERS; i++)
-		m_playerRoles[i] = CHRole::Unassigned;
+	{
+		if (!IsSittingOut(i))
+			m_playerRoles[i] = CHRole::Unassigned;
+	}
 
 	ClearPunishments();
 
@@ -619,8 +623,15 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 	// Everyone starts Unassigned so that players who connect mid-round stay
 	// Unassigned - CountAlivePlayersWithRole() ignores them, and PlayerSpawn()
 	// drops them into observer mode until the next round.
+	//
+	// Spectator is the one role a deal does not clear: it is a standing request
+	// to be left out, not a state belonging to the round being dealt. Wiping it
+	// here is what used to hand a spectator a Survivor role again below.
 	for (int i = 0; i <= MAX_PLAYERS; i++)
-		m_playerRoles[i] = CHRole::Unassigned;
+	{
+		if (!IsSittingOut(i))
+			m_playerRoles[i] = CHRole::Unassigned;
+	}
 
 	// A penalty belongs to the round it was earned in - carrying one over would
 	// hand somebody a crippled Killer through no fault of their own.
@@ -635,7 +646,7 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 	{
 		CBasePlayer* pPlayer = GetPlayerByIndex(i);
 
-		if (!pPlayer)
+		if (!pPlayer || IsSittingOut(i))
 			continue;
 
 		m_playerRoles[i] = CHRole::Survivor;
@@ -1035,6 +1046,8 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_playerRoles[index] = CHRole::Unassigned;
 	m_flPunishEndTime[index] = 0.0f;
 	m_flSendServerName[index] = 0.0f;
+	m_iSentSpectator[index] = -1;
+	m_flSpectatePromptExpires[index] = 0.0f;
 
 	// A fresh slot draws at full odds. This does mean a player who reconnects
 	// sheds whatever repeat-suppression they had built up; the alternative is
@@ -1111,8 +1124,12 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 
 	// Catches anyone alive in a live round without a role: a mid-round joiner,
 	// or someone who connected during the countdown after AssignRoles() had
-	// already run. Idempotent - PFLAG_OBSERVER means it is already done.
-	EnforceObserverForUnassigned(pPlayer);
+	// already run - plus anyone who asked to sit out, in any state. Idempotent:
+	// PFLAG_OBSERVER means it is already done.
+	EnforceObserverForSidelined(pPlayer);
+
+	// After the above, so a player parked this frame is reported this frame.
+	ServiceSpectatorState(pPlayer);
 
 	if (!pPlayer->IsAlive() || m_roundState != CHRoundState::InProgress)
 		return;
@@ -1563,6 +1580,136 @@ void CHalfLifeCrowbarHunt::GiveRoleLoadout(CBasePlayer* pPlayer, CHRole role)
 	}
 }
 
+bool CHalfLifeCrowbarHunt::IsSittingOut(int index) const
+{
+	if (index < 1 || index > MAX_PLAYERS)
+		return false;
+
+	return m_playerRoles[index] == CHRole::Spectator;
+}
+
+// ---------------------------------------------------------------------------
+// Voluntary spectating
+//
+// The stock "spectate" command is a one-way door: it drops the player into
+// observer mode and leaves no record that they chose it. That is enough for
+// deathmatch, where nothing ever respawns a player who does not ask to be, but
+// this mode puts everybody back on a spawn point at the top of each round - so
+// a spectator was being dragged back into play one round later.
+//
+// CHRole::Spectator is that missing record, and it is what every head count,
+// role deal and respawn sweep checks. Typing "spectate" again is the way back
+// in: there is no other un-spectate path in the SDK to hook, and the engine's
+// own spectator UI only ever sends this one command.
+// ---------------------------------------------------------------------------
+bool CHalfLifeCrowbarHunt::HandleSpectateCommand(CBasePlayer* pPlayer)
+{
+	if (!pPlayer)
+		return false;
+
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return false;
+
+	if (IsSittingOut(index))
+	{
+		// Unassigned, not Survivor: a deal is the only thing that hands out a
+		// part in a round, so rejoining asks for the next one rather than
+		// inserting them into the round already running.
+		m_playerRoles[index] = CHRole::Unassigned;
+
+		// Between rounds there is a live body to go back to, so take it now -
+		// FPlayerCanRespawn() is already the answer to "is there a round in the
+		// way". Mid-round they keep the camera they are in, and the next deal
+		// picks them up.
+		if (FPlayerCanRespawn(pPlayer))
+			ForceRespawn(pPlayer);
+
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Rejoining.\nYou're in for the next round.\n");
+
+		return true;
+	}
+
+	// Walking out of a live round is a loss to it, and "spectate" is one
+	// keypress on the engine's own spectator UI - so ask first. The yes comes
+	// back as "menuselect 1" (see ClientCommand()); no, or silence, is a no.
+	// Between rounds there is nothing to lose, so no prompt. Typing spectate a
+	// second time while the prompt is still up counts as the yes.
+	if (m_roundState == CHRoundState::InProgress && pPlayer->IsAlive() && gpGlobals->time > m_flSpectatePromptExpires[index])
+	{
+		m_flSpectatePromptExpires[index] = gpGlobals->time + CH_SPECTATE_PROMPT_TIME;
+
+		MESSAGE_BEGIN(MSG_ONE, gmsgShowMenu, NULL, pPlayer->edict());
+		WRITE_SHORT((1 << 0) | (1 << 1)); // keys 1 and 2
+		WRITE_CHAR(CH_SPECTATE_PROMPT_TIME);
+		WRITE_BYTE(0); // no more text to follow
+		WRITE_STRING("Sit out the rest of this round?\nYou will stay out until you type spectate again.\n\n1. Yes, spectate\n2. No, keep playing");
+		MESSAGE_END();
+
+		return true;
+	}
+
+	BecomeSpectator(pPlayer);
+
+	return true;
+}
+
+// The half of "spectate" that actually leaves: reached straight away between
+// rounds, and through the prompt's yes during one.
+void CHalfLifeCrowbarHunt::BecomeSpectator(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	m_flSpectatePromptExpires[index] = 0.0f;
+	m_playerRoles[index] = CHRole::Spectator;
+
+	// Leaving a live round mid-way is the same loss to it as dying: the role is
+	// gone from CountAlivePlayersWithRole(), so CheckRoundWinConditions() settles
+	// the round on the next frame - including the case of the Killer walking out.
+	if ((pPlayer->m_afPhysicsFlags & PFLAG_OBSERVER) == 0)
+	{
+		// The tint would otherwise follow a punished player into the spectator
+		// camera, the same way it would a dead one. See MoveDeadPlayersToObserver().
+		if (IsPunished(pPlayer))
+			SetPunishTint(pPlayer, false);
+
+		pPlayer->StartObserver(pPlayer->pev->origin, pPlayer->pev->v_angle);
+	}
+
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Spectating.\nType spectate again to rejoin.\n");
+}
+
+bool CHalfLifeCrowbarHunt::ClientCommand(CBasePlayer* pPlayer, const char* pcmd)
+{
+	if (CHalfLifeMultiplay::ClientCommand(pPlayer, pcmd))
+		return true;
+
+	if (!pPlayer || !FStrEq(pcmd, "menuselect"))
+		return false;
+
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return true;
+
+	// Only the spectate prompt puts a menu up in this mode, and only its answer
+	// is listened for. Anything past the prompt's own timeout is an answer to
+	// something else.
+	const bool prompting = m_flSpectatePromptExpires[index] != 0.0f && gpGlobals->time <= m_flSpectatePromptExpires[index];
+	m_flSpectatePromptExpires[index] = 0.0f;
+
+	if (!prompting || CMD_ARGC() < 2)
+		return true;
+
+	// A player killed while the prompt was up is already on their way to the
+	// observer camera; let that path finish rather than start it twice.
+	if (atoi(CMD_ARGV(1)) == 1 && !IsSittingOut(index) && pPlayer->IsAlive())
+		BecomeSpectator(pPlayer);
+
+	return true;
+}
+
 void CHalfLifeCrowbarHunt::SetPlayerRole(CBasePlayer* pPlayer, CHRole role)
 {
 	if (!pPlayer)
@@ -1612,13 +1759,17 @@ CBasePlayer* CHalfLifeCrowbarHunt::GetPlayerByIndex(int index)
 	return pPlayer;
 }
 
+// Counts bodies available to a round, which is not the same as clients on the
+// server: somebody who has asked to sit out cannot fill a slot in one. This is
+// what decides whether a round can start or has to be aborted, so a server that
+// empties out into spectators correctly drops back to waiting.
 int CHalfLifeCrowbarHunt::CountConnectedPlayers() const
 {
 	int count = 0;
 
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
-		if (GetPlayerByIndex(i))
+		if (GetPlayerByIndex(i) && !IsSittingOut(i))
 			count++;
 	}
 
@@ -1825,6 +1976,15 @@ void CHalfLifeCrowbarHunt::PlayerSpawn(CBasePlayer* pPlayer)
 
 	CHRole role = GetPlayerRole(pPlayer);
 
+	// Sitting out by choice. Nothing in the round loop spawns these players, so
+	// reaching here means something else did - the engine putting a reconnecting
+	// client in, say. Strip them and let PlayerThink() put the camera back.
+	if (role == CHRole::Spectator)
+	{
+		pPlayer->RemoveAllItems(false);
+		return;
+	}
+
 	if (m_roundState != CHRoundState::InProgress)
 	{
 		pPlayer->RemoveAllItems(false); // no weapons while waiting/pre-round
@@ -1898,10 +2058,17 @@ void CHalfLifeCrowbarHunt::StripAllPlayers() const
 	}
 }
 
+// Both sweeps leave anyone sitting out where they are. This is the whole reason
+// the Spectator role exists: StartObserver() leaves a player reading as not
+// alive, so without the check a voluntary spectator looks exactly like a player
+// who died last round and is owed a respawn.
 void CHalfLifeCrowbarHunt::ForceRespawnAllPlayers() const
 {
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
-		ForceRespawn(GetPlayerByIndex(i));
+	{
+		if (!IsSittingOut(i))
+			ForceRespawn(GetPlayerByIndex(i));
+	}
 }
 
 void CHalfLifeCrowbarHunt::ForceRespawnDeadPlayers() const
@@ -1910,7 +2077,7 @@ void CHalfLifeCrowbarHunt::ForceRespawnDeadPlayers() const
 	{
 		CBasePlayer* pPlayer = GetPlayerByIndex(i);
 
-		if (pPlayer && !pPlayer->IsAlive())
+		if (pPlayer && !pPlayer->IsAlive() && !IsSittingOut(i))
 			ForceRespawn(pPlayer);
 	}
 }
@@ -1946,16 +2113,29 @@ void CHalfLifeCrowbarHunt::MoveDeadPlayersToObserver() const
 	}
 }
 
-// The other half of PlayerSpawn()'s Unassigned branch, run from PlayerThink()
-// so ClientPutInServer() can no longer undo it. A roleless player alive in a
-// live round is someone who missed role assignment: park them in observer mode
-// until ResetForNextRound() takes everybody back out.
-void CHalfLifeCrowbarHunt::EnforceObserverForUnassigned(CBasePlayer* pPlayer) const
+// The other half of PlayerSpawn()'s Unassigned and Spectator branches, run from
+// PlayerThink() so ClientPutInServer() can no longer undo it.
+//
+// Two kinds of player end up here. A roleless one alive in a live round missed
+// role assignment, and watches until ResetForNextRound() takes everybody back
+// out - so that case is gated to InProgress. A voluntary spectator asked to sit
+// out and is checked in every state, because there is no round boundary that
+// ends it: only asking to come back does.
+void CHalfLifeCrowbarHunt::EnforceObserverForSidelined(CBasePlayer* pPlayer) const
 {
-	if (m_roundState != CHRoundState::InProgress)
-		return;
+	const CHRole role = GetPlayerRole(pPlayer);
 
-	if (!pPlayer->IsAlive() || GetPlayerRole(pPlayer) != CHRole::Unassigned)
+	if (role == CHRole::Unassigned)
+	{
+		if (m_roundState != CHRoundState::InProgress)
+			return;
+	}
+	else if (role != CHRole::Spectator)
+	{
+		return;
+	}
+
+	if (!pPlayer->IsAlive())
 		return;
 
 	if ((pPlayer->m_afPhysicsFlags & PFLAG_OBSERVER) != 0)
@@ -1982,6 +2162,53 @@ void CHalfLifeCrowbarHunt::ServiceServerNameSend(CBasePlayer* pPlayer)
 	// has not hooked its user messages yet drops them. A joiner who misses this
 	// send still picks everything up at the next round's deal.
 	SendAnonColors(pPlayer);
+
+	// So does the game mode, and the sit-out state of everyone already here -
+	// ServiceSpectatorState() only broadcasts changes, and this client missed
+	// the ones that happened before it arrived.
+	UpdateGameMode(pPlayer);
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pOther = GetPlayerByIndex(i);
+		if (!pOther)
+			continue;
+
+		SendSpectatorState(pOther, IsSittingOut(i), pPlayer->edict());
+	}
+}
+
+void CHalfLifeCrowbarHunt::UpdateGameMode(CBasePlayer* pPlayer)
+{
+	MESSAGE_BEGIN(MSG_ONE, gmsgGameMode, NULL, pPlayer->edict());
+	WRITE_BYTE(CH_GAMEMODE_CROWBARHUNT);
+	MESSAGE_END();
+}
+
+void CHalfLifeCrowbarHunt::SendSpectatorState(CBasePlayer* pPlayer, bool bObserver, edict_t* pTarget)
+{
+	if (pTarget)
+		MESSAGE_BEGIN(MSG_ONE, gmsgSpectator, NULL, pTarget);
+	else
+		MESSAGE_BEGIN(MSG_ALL, gmsgSpectator);
+	WRITE_BYTE(ENTINDEX(pPlayer->edict()));
+	WRITE_BYTE(bObserver ? 1 : 0);
+	MESSAGE_END();
+}
+
+void CHalfLifeCrowbarHunt::ServiceSpectatorState(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+	// Only those who asked to sit out (the "spectate" command). The round's dead
+	// and sidelined joiners are observers too, but they are still players in
+	// the round and belong under the Players header.
+	const int observer = IsSittingOut(index) ? 1 : 0;
+
+	if (m_iSentSpectator[index] == observer)
+		return;
+
+	m_iSentSpectator[index] = observer;
+	SendSpectatorState(pPlayer, observer != 0, NULL);
 }
 
 // Snapshot a player's body into a standalone entity, so it stays visible after

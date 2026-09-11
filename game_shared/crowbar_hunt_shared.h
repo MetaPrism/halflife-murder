@@ -69,3 +69,8 @@ constexpr int CH_NUM_ANON_COLORS = sizeof(g_CHAnonColors) / sizeof(g_CHAnonColor
 // Longest anonymous name including the terminator; the engine truncates player
 // names to MAX_PLAYER_NAME_LENGTH (32) anyway.
 #define CH_MAX_ANON_NAME 32
+
+// Value sent in gmsgGameMode by CHalfLifeCrowbarHunt::UpdateGameMode(). The
+// base SDK sends 0 for deathmatch and 1 for teamplay; the client's scoreboard
+// keys its Players/Spectators layout off this one.
+#define CH_GAMEMODE_CROWBARHUNT 2

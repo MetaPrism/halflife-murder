@@ -509,6 +509,7 @@ public:
 	int m_iHideHUDDisplay;
 	int m_iFOV;
 	bool m_Teamplay;
+	bool m_CrowbarHunt; // the server is running Crowbar Hunt (gmsgGameMode == CH_GAMEMODE_CROWBARHUNT)
 	int m_iRes;
 	cvar_t* m_pCvarStealMouse;
 	cvar_t* m_pCvarDraw;

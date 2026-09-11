@@ -21,7 +21,13 @@ a deathmatch server.
 enum class CHRole
 {
 	Unassigned = 0,
+
+	// Asked to sit out with the "spectate" command, and stays out until they ask
+	// to come back. Distinct from Unassigned, which is temporary - a player who
+	// missed a deal and is owed a place in the next one. Every head count, role
+	// deal and forced respawn skips this role. See HandleSpectateCommand().
 	Spectator,
+
 	Killer,
 	Hunter,
 	Survivor,
@@ -29,6 +35,10 @@ enum class CHRole
 
 // How often, in seconds, WaitingForPlayers reminds the server it's waiting.
 #define CH_WAITING_ANNOUNCE_INTERVAL 30.0f
+
+// How long, in seconds, the "really spectate?" prompt stays up and its answer
+// is accepted.
+#define CH_SPECTATE_PROMPT_TIME 10
 
 // Maximum number of map entities whose spawn state we track for round resets.
 // Comfortably above what a Half-Life deathmatch map uses.
@@ -118,6 +128,13 @@ public:
 	// them back, so CBreakable::Die() must not free their edict.
 	bool ShouldPreserveBrokenEntities() override { return true; }
 
+	// A player who asks to spectate stays a spectator through the round resets
+	// that would otherwise respawn them, until they ask to come back. Leaving a
+	// live round asks for confirmation first (a ShowMenu prompt); the answer
+	// comes back through ClientCommand() as "menuselect".
+	bool HandleSpectateCommand(CBasePlayer* pPlayer) override;
+	bool ClientCommand(CBasePlayer* pPlayer, const char* pcmd) override;
+
 	// Proximity voice chat, when ch_proxvoice is on: hiding is the Survivors'
 	// main defence, so a voice that carries the whole map would give them away.
 	bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) override;
@@ -139,6 +156,11 @@ public:
 	// Both ends of an occupancy wipe the slot - see ResetPlayerSlot().
 	bool ClientConnected(edict_t* pEntity, const char* pszName, const char* pszAddress, char szRejectReason[128]) override;
 	void ClientDisconnected(edict_t* pClient) override;
+
+	// Tells the client's scoreboard to use the Players/Spectators layout. The
+	// base class sends this once from InitHUD(), which a listen server's client
+	// drops (see ServiceServerNameSend()), so it is also re-sent from there.
+	void UpdateGameMode(CBasePlayer* pPlayer) override;
 
 	// GetPlayerByIndex() for the "ch_odds" server command, which is a free
 	// function and so cannot reach the private one.
@@ -231,6 +253,11 @@ private:
 	// Is a weapon classname one this role is allowed to carry?
 	static bool RoleCanCarryWeapon(CHRole role, const char* pszWeaponName);
 
+	// Has this slot asked to sit out? The one definition of "leave them alone",
+	// shared by the head count, the role deal and both respawn sweeps.
+	bool IsSittingOut(int index) const;
+	void BecomeSpectator(CBasePlayer* pPlayer);
+
 	// --- anonymous mode ---
 	// Deal every connected player a fresh colour and name for the round, or
 	// take the disguises off if the cvar has since been turned off. Called from
@@ -275,16 +302,24 @@ private:
 	void ForceRespawnDeadPlayers() const;
 	void MoveDeadPlayersToObserver() const;
 
-	// Park an alive, roleless player in a live round (a mid-round joiner) in
-	// observer mode. Deferred out of PlayerSpawn(), which runs too early for
-	// the spectator view to survive ClientPutInServer().
-	void EnforceObserverForUnassigned(CBasePlayer* pPlayer) const;
+	// Park a player who is not taking part in observer mode: an alive, roleless
+	// player in a live round (a mid-round joiner), or anyone who asked to sit
+	// out. Deferred out of PlayerSpawn(), which runs too early for the spectator
+	// view to survive ClientPutInServer().
+	void EnforceObserverForSidelined(CBasePlayer* pPlayer) const;
 
 	// Send the scoreboard title (the "hostname" cvar). Deferred out of
 	// PlayerSpawn() the same way: the base class sends it once from InitHUD(),
 	// which on a listen server runs before the client has hooked user messages
 	// at all, so that copy is dropped by the engine and never asked for again.
 	void ServiceServerNameSend(CBasePlayer* pPlayer);
+
+	// Broadcast whether a player is sitting out (CHRole::Spectator) whenever
+	// that changes, so every client's scoreboard can file them under
+	// Spectators. Only voluntary spectators count: the round's dead stay under
+	// Players. The client cannot work any of this out on its own.
+	void ServiceSpectatorState(CBasePlayer* pPlayer);
+	static void SendSpectatorState(CBasePlayer* pPlayer, bool bObserver, edict_t* pTarget);
 
 	// Leave a visible body behind at the point a player was killed.
 	static void LeaveCorpse(CBasePlayer* pPlayer);
@@ -314,10 +349,21 @@ private:
 	// pending. Same indexing as m_playerRoles.
 	float m_flSendServerName[MAX_PLAYERS + 1];
 
+	// The sitting-out state last broadcast for each slot: 0, 1, or -1 for
+	// "never sent", which forces a send on a slot's first PlayerThink(). Same indexing
+	// as m_playerRoles, and cleared with it.
+	int m_iSentSpectator[MAX_PLAYERS + 1];
+
 	// gpGlobals->time each punished player's penalty runs out, or 0 for no
 	// penalty. Same indexing as m_playerRoles, and cleared with it: the penalty
 	// is a cost paid inside one round, not something carried into the next.
 	float m_flPunishEndTime[MAX_PLAYERS + 1];
+
+	// gpGlobals->time until which a "menuselect 1" from this slot counts as a
+	// yes to the spectate prompt, or 0 for no prompt up. Matches the menu's own
+	// on-screen timeout, so a stale answer to some later menu cannot be taken
+	// as consent. Same indexing as m_playerRoles, and cleared with it.
+	float m_flSpectatePromptExpires[MAX_PLAYERS + 1];
 
 	// Anonymous mode state, all indexed like m_playerRoles.
 	//

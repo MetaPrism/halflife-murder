@@ -67,5 +67,6 @@ void LinkUserMessages()
 	gmsgWeapons = REG_USER_MSG("Weapons", 8);
 
 	gmsgCHAnon = REG_USER_MSG("CHAnon", -1); // player slot, colour index, real name
+	gmsgSpectator = REG_USER_MSG("Spectator", 2); // player slot, 1 if observing
 
 }

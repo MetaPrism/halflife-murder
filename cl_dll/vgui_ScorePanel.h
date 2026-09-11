@@ -269,6 +269,7 @@ public:
 	bool m_bHasBeenSorted[MAX_PLAYERS_HUD];
 	int m_iLastKilledBy;
 	int m_fLastKillTime;
+	int m_iCHPlayerCount; // Crowbar Hunt: how many are under the "Players" header
 
 
 public:
@@ -277,7 +278,9 @@ public:
 	void Update();
 
 	void SortTeams();
-	void SortPlayers(int iTeam, char* team);
+	// iSpectators: -1 for everyone, else only players whose g_IsSpectator matches
+	void SortPlayers(int iTeam, char* team, int iSpectators = -1);
+	void SortCrowbarHunt();
 	void RebuildTeams();
 
 	void FillGrid();

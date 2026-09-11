@@ -74,6 +74,11 @@ SBColumnInfo g_ColumnInfo[NUM_COLUMNS] =
 #define TEAM_YES 1
 #define TEAM_SPECTATORS 2
 #define TEAM_BLANK 3
+#define TEAM_CH_PLAYERS 4 // Crowbar Hunt: header over everyone who is not observing
+
+// Crowbar Hunt draws its "Players" header in the teamplay blue (iTeamColors[1])
+// and Spectators in the base SDK's grey.
+#define CH_PLAYERS_TEAM_COLOR 1
 
 
 //-----------------------------------------------------------------------------
@@ -246,6 +251,7 @@ void ScorePanel::Initialize()
 	// Clear out scoreboard data
 	m_iLastKilledBy = 0;
 	m_fLastKillTime = 0;
+	m_iCHPlayerCount = 0;
 	m_iPlayerNum = 0;
 	m_iNumTeams = 0;
 	memset(g_PlayerExtraInfo, 0, sizeof g_PlayerExtraInfo);
@@ -285,7 +291,9 @@ void ScorePanel::Update()
 	}
 
 	// If it's not teamplay, sort all the players. Otherwise, sort the teams.
-	if (!gHUD.m_Teamplay)
+	if (gHUD.m_CrowbarHunt)
+		SortCrowbarHunt();
+	else if (!gHUD.m_Teamplay)
 		SortPlayers(0, NULL);
 	else
 		SortTeams();
@@ -410,9 +418,29 @@ void ScorePanel::SortTeams()
 }
 
 //-----------------------------------------------------------------------------
+// Purpose: Crowbar Hunt - the teamplay look with two fixed headers: everyone
+//          still in the round under "Players", observers under "Spectators".
+//          The server keeps g_IsSpectator up to date (gmsgSpectator).
+//-----------------------------------------------------------------------------
+void ScorePanel::SortCrowbarHunt()
+{
+	// The Players header is always drawn, even when nobody is under it, so the
+	// board never opens on "Spectators" alone.
+	m_iIsATeam[m_iRows++] = TEAM_CH_PLAYERS;
+
+	int firstPlayerRow = m_iRows;
+	SortPlayers(0, NULL, 0);
+	m_iCHPlayerCount = m_iRows - firstPlayerRow;
+
+	m_iIsATeam[m_iRows++] = TEAM_BLANK;
+
+	SortPlayers(TEAM_SPECTATORS, NULL, 1);
+}
+
+//-----------------------------------------------------------------------------
 // Purpose: Sort a list of players
 //-----------------------------------------------------------------------------
-void ScorePanel::SortPlayers(int iTeam, char* team)
+void ScorePanel::SortPlayers(int iTeam, char* team, int iSpectators)
 {
 	bool bCreatedTeam = false;
 
@@ -430,6 +458,9 @@ void ScorePanel::SortPlayers(int iTeam, char* team)
 			if (m_bHasBeenSorted[i] == false && g_PlayerInfoList[i].name && g_PlayerExtraInfo[i].frags >= highest_frags)
 			{
 				cl_entity_t* ent = gEngfuncs.GetEntityByIndex(i);
+
+				if (iSpectators >= 0 && (g_IsSpectator[i] != 0) != (iSpectators != 0))
+					continue;
 
 				if (ent && !(team && stricmp(g_PlayerExtraInfo[i].teamname, team)))
 				{
@@ -651,6 +682,30 @@ void ScorePanel::FillGrid()
 
 				pGridRow->SetRowUnderline(0, true, YRES(3), 100, 100, 100, 0);
 			}
+			else if (m_iIsATeam[row] == TEAM_CH_PLAYERS)
+			{
+				// Crowbar Hunt "Players" header, styled like a team header
+				pLabel->setFgColor(iTeamColors[CH_PLAYERS_TEAM_COLOR][0],
+					iTeamColors[CH_PLAYERS_TEAM_COLOR][1],
+					iTeamColors[CH_PLAYERS_TEAM_COLOR][2],
+					0);
+
+				rowheight = 20;
+				if (ScreenHeight >= 480)
+				{
+					rowheight = YRES(rowheight);
+				}
+				pLabel->setSize(pLabel->getWide(), rowheight);
+				pLabel->setFont(tfont);
+
+				pGridRow->SetRowUnderline(0,
+					true,
+					YRES(3),
+					iTeamColors[CH_PLAYERS_TEAM_COLOR][0],
+					iTeamColors[CH_PLAYERS_TEAM_COLOR][1],
+					iTeamColors[CH_PLAYERS_TEAM_COLOR][2],
+					0);
+			}
 			else
 			{
 				// team color text for player names
@@ -706,6 +761,10 @@ void ScorePanel::FillGrid()
 					{
 						sprintf(sz2, "%s", CHudTextMessage::BufferedLocaliseTextString("#Spectators"));
 					}
+					else if (m_iIsATeam[row] == TEAM_CH_PLAYERS)
+					{
+						strcpy(sz2, "Players"); // the localised #Player_plural is lowercase
+					}
 					else
 					{
 						sprintf(sz2, "%s", gViewPort->GetTeamName(team_info->teamnumber));
@@ -714,15 +773,17 @@ void ScorePanel::FillGrid()
 					strcpy(sz, sz2);
 
 					// Append the number of players
-					if (m_iIsATeam[row] == TEAM_YES)
+					if (m_iIsATeam[row] == TEAM_YES || m_iIsATeam[row] == TEAM_CH_PLAYERS)
 					{
-						if (team_info->players == 1)
+						const int players = m_iIsATeam[row] == TEAM_YES ? team_info->players : m_iCHPlayerCount;
+
+						if (players == 1)
 						{
-							sprintf(sz2, "(%d %s)", team_info->players, CHudTextMessage::BufferedLocaliseTextString("#Player"));
+							sprintf(sz2, "(%d %s)", players, CHudTextMessage::BufferedLocaliseTextString("#Player"));
 						}
 						else
 						{
-							sprintf(sz2, "(%d %s)", team_info->players, CHudTextMessage::BufferedLocaliseTextString("#Player_plural"));
+							sprintf(sz2, "(%d %s)", players, CHudTextMessage::BufferedLocaliseTextString("#Player_plural"));
 						}
 
 						pLabel->setText2(sz2);

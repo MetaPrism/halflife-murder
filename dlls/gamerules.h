@@ -181,6 +181,14 @@ public:
 	// the dead). Consulted before sv_alltalk, so a mode can be stricter than it.
 	virtual bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) { return true; }
 
+	// The "spectate" command. A mode that tracks who is taking part in a round
+	// has to answer this itself: the default below it is a one-way trip into
+	// observer mode, with no way back and no record that the player chose it,
+	// so a mode which respawns everybody between rounds would drag them back
+	// into play. Returning true means the command is fully handled and the
+	// default allow_spectators/StartObserver path is skipped. See ClientCommand().
+	virtual bool HandleSpectateCommand(CBasePlayer* pPlayer) { return false; }
+
 protected:
 	CBasePlayerItem* FindNextBestWeapon(CBasePlayer* pPlayer, CBasePlayerItem* pCurrentWeapon);
 };

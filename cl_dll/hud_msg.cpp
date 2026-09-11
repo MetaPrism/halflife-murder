@@ -20,6 +20,7 @@
 #include "cl_util.h"
 #include "parsemsg.h"
 #include "r_efx.h"
+#include "crowbar_hunt_shared.h"
 
 #include "particleman.h"
 extern IParticleMan* g_pParticleMan;
@@ -91,7 +92,9 @@ bool CHud::MsgFunc_GameMode(const char* pszName, int iSize, void* pbuf)
 	//Note: this user message could be updated to include multiple gamemodes, so make sure this checks for game mode 1
 	//See CHalfLifeTeamplay::UpdateGameMode
 	//TODO: define game mode constants
-	m_Teamplay = READ_BYTE() == 1;
+	const int gameMode = READ_BYTE();
+	m_Teamplay = gameMode == 1;
+	m_CrowbarHunt = gameMode == CH_GAMEMODE_CROWBARHUNT;
 
 #ifdef STEAM_RICH_PRESENCE
 	if (m_Teamplay)

@@ -59,4 +59,9 @@ inline int gmsgWeapons = 0;
 // the real name the scoreboard shows behind the disguise.
 inline int gmsgCHAnon = 0;
 
+// Crowbar Hunt: which players are observers, so the scoreboard can file them
+// under Spectators. The base SDK client already handles this message
+// (MsgFunc_Spectator) but nothing server-side ever registered or sent it.
+inline int gmsgSpectator = 0;
+
 void LinkUserMessages();

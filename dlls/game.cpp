@@ -42,7 +42,7 @@ cvar_t teamoverride = {"mp_teamoverride", "1"};
 cvar_t defaultteam = {"mp_defaultteam", "0"};
 cvar_t allowmonsters = {"mp_allowmonsters", "0", FCVAR_SERVER};
 
-cvar_t allow_spectators = {"allow_spectators", "0.0", FCVAR_SERVER}; // 0 prevents players from being spectators
+cvar_t allow_spectators = {"allow_spectators", "1", FCVAR_SERVER}; // 0 prevents players from being spectators
 
 cvar_t mp_chattime = {"mp_chattime", "10", FCVAR_SERVER};
 
@@ -463,7 +463,7 @@ cvar_t sv_crowbarhunt = {"sv_crowbarhunt", "1", FCVAR_SERVER};
 
 cvar_t ch_crowbar_return_time = {"ch_crowbar_return_time", "40", FCVAR_SERVER};
 
-cvar_t ch_glow_shell = {"ch_glow_shell", "20", FCVAR_SERVER};
+cvar_t ch_glow_shell = {"ch_glow_shell", "25", FCVAR_SERVER};
 
 cvar_t ch_sprint_speed = {"ch_sprint_speed", "270", FCVAR_SERVER};
 cvar_t ch_base_speed = {"ch_base_speed", "240", FCVAR_SERVER};
@@ -471,7 +471,7 @@ cvar_t ch_base_speed = {"ch_base_speed", "240", FCVAR_SERVER};
 cvar_t ch_proxvoice = {"ch_proxvoice", "0", FCVAR_SERVER};
 
 cvar_t ch_punish_time = {"ch_punish_time", "20", FCVAR_SERVER};
-cvar_t ch_punish_tint = {"ch_punish_tint", "160", FCVAR_SERVER};
+cvar_t ch_punish_tint = {"ch_punish_tint", "200", FCVAR_SERVER};
 
 cvar_t ch_anonymous = {"ch_anonymous", "0", FCVAR_SERVER};
 
