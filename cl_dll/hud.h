@@ -396,6 +396,20 @@ struct message_parms_t
 //-----------------------------------------------------
 //
 
+// Crowbar Hunt round clock, bottom-centre. See ch_timer.cpp.
+class CHudCHTimer : public CHudBase
+{
+public:
+	bool Init() override;
+	bool VidInit() override;
+	void InitHUDData() override;
+	bool Draw(float flTime) override;
+	bool MsgFunc_CHTimer(const char* pszName, int iSize, void* pbuf);
+
+private:
+	float m_flEndTime; // gHUD.m_flTime the round is called at; 0 while no clock is running
+};
+
 class CHudTextMessage : public CHudBase
 {
 public:
@@ -582,6 +596,7 @@ public:
 	CHudAmmoSecondary m_AmmoSecondary;
 	CHudTextMessage m_TextMessage;
 	CHudStatusIcons m_StatusIcons;
+	CHudCHTimer m_CHTimer;
 
 	void Init();
 	void VidInit();

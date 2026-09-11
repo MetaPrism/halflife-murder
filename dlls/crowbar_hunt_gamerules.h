@@ -191,7 +191,7 @@ private:
 	void SetRoundState(CHRoundState state);
 	void StartPreRound();
 	void StartRound();
-	void EndRound(CHRole winningRole);
+	void EndRound(CHRole winningRole, const char* pszMessage = nullptr);
 	void AnnounceWaitingForPlayers() const;
 	void AbortRound();        // too few players left - drop the round on the spot
 	void ResetForNextRound(); // reset roles, go back to WaitingForPlayers/PreRound
@@ -341,6 +341,15 @@ private:
 
 	// gpGlobals->time of the next "Waiting for players..." announcement
 	float m_flNextWaitingAnnounce;
+
+	// gpGlobals->time the live round is called for the Survivors, from
+	// ch_round_time. 0 while no clock is running - outside InProgress, or when
+	// the cvar is 0.
+	float m_flRoundTimeLimit;
+
+	// Push the round clock to one client, or to everyone when pTarget is null:
+	// the seconds left, or 0 to take it off the HUD.
+	void SendRoundTimer(edict_t* pTarget) const;
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
 	CHRole m_playerRoles[MAX_PLAYERS + 1];

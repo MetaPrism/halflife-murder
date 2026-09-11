@@ -59,6 +59,10 @@ inline int gmsgWeapons = 0;
 // the real name the scoreboard shows behind the disguise.
 inline int gmsgCHAnon = 0;
 
+// Crowbar Hunt round clock: seconds left in the round, 0 to take the clock
+// off the HUD. The client counts down from there on its own.
+inline int gmsgCHTimer = 0;
+
 // Crowbar Hunt: which players are observers, so the scoreboard can file them
 // under Spectators. The base SDK client already handles this message
 // (MsgFunc_Spectator) but nothing server-side ever registered or sent it.

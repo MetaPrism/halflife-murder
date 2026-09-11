@@ -237,6 +237,7 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	m_flStateEnterTime  = gpGlobals->time;
 	m_flPreRoundLength  = 5.0f;
 	m_flRoundEndLength  = 8.0f;
+	m_flRoundTimeLimit  = 0.0f;
 	m_numSnapshots      = 0;
 	m_bSnapshotTaken    = false;
 
@@ -306,6 +307,15 @@ void CHalfLifeCrowbarHunt::Think()
 		// that death decided the round.
 		MoveDeadPlayersToObserver();
 		CheckRoundWinConditions();
+
+		// The Killer ran out the clock: everyone still standing has survived.
+		// After the win check, so a kill that lands on the final frame still
+		// counts the way it would have a moment earlier.
+		if (m_roundState == CHRoundState::InProgress &&
+			m_flRoundTimeLimit != 0.0f && gpGlobals->time >= m_flRoundTimeLimit)
+		{
+			EndRound(CHRole::Survivor, "Time's up! The Survivors win the round!\n");
+		}
 		break;
 
 	case CHRoundState::RoundEnd:
@@ -324,6 +334,20 @@ void CHalfLifeCrowbarHunt::SetRoundState(CHRoundState state)
 {
 	m_roundState       = state;
 	m_flStateEnterTime = gpGlobals->time;
+
+	// The clock only runs while a round is live. Starting one winds it up;
+	// leaving InProgress by any route - a win, a timeout, an abort - takes it
+	// off everyone's HUD.
+	if (state == CHRoundState::InProgress && ch_round_time.value > 0.0f)
+	{
+		m_flRoundTimeLimit = gpGlobals->time + ch_round_time.value;
+		SendRoundTimer(nullptr);
+	}
+	else if (m_flRoundTimeLimit != 0.0f)
+	{
+		m_flRoundTimeLimit = 0.0f;
+		SendRoundTimer(nullptr);
+	}
 
 	// Entering the waiting state should say so immediately, not up to a full
 	// interval later.
@@ -375,7 +399,9 @@ void CHalfLifeCrowbarHunt::StartRound()
 	//UTIL_ClientPrintAll(HUD_PRINTCENTER, "Round started! Survive... or hunt.\n");
 }
 
-void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole)
+// pszMessage replaces the stock result line when the round ended some way
+// other than the last death - the clock running out, say.
+void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole, const char* pszMessage)
 {
 	SetRoundState(CHRoundState::RoundEnd);
 
@@ -392,7 +418,21 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole)
 	default:
 		break;
 	}
-	UTIL_ClientPrintAll(HUD_PRINTCENTER, msg);
+	UTIL_ClientPrintAll(HUD_PRINTCENTER, pszMessage ? pszMessage : msg);
+}
+
+void CHalfLifeCrowbarHunt::SendRoundTimer(edict_t* pTarget) const
+{
+	int seconds = 0;
+	if (m_flRoundTimeLimit != 0.0f)
+		seconds = V_max(0, static_cast<int>(ceilf(m_flRoundTimeLimit - gpGlobals->time)));
+
+	if (pTarget)
+		MESSAGE_BEGIN(MSG_ONE, gmsgCHTimer, nullptr, pTarget);
+	else
+		MESSAGE_BEGIN(MSG_ALL, gmsgCHTimer, nullptr);
+	WRITE_SHORT(seconds);
+	MESSAGE_END();
 }
 
 // Periodic reminder, on its own HUD channel so it never collides with the
@@ -2197,6 +2237,11 @@ void CHalfLifeCrowbarHunt::ServiceServerNameSend(CBasePlayer* pPlayer)
 	// ServiceSpectatorState() only broadcasts changes, and this client missed
 	// the ones that happened before it arrived.
 	UpdateGameMode(pPlayer);
+
+	// And the round clock, if one is running: it was broadcast once, at the
+	// start of the round, which this client wasn't around for.
+	if (m_flRoundTimeLimit != 0.0f)
+		SendRoundTimer(pPlayer->edict());
 
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
