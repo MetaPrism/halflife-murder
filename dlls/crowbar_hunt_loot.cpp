@@ -9,6 +9,9 @@
 // the file's first "model" line, or a ch_loot_spawn with the key left blank.
 constexpr const char* CH_DEFAULT_LOOT_MODEL = "models/w_battery.mdl";
 
+// Rings out at the spot a piece was taken from, for anyone in earshot.
+constexpr const char* CH_LOOT_PICKUP_SOUND = "buttons/bell1.wav";
+
 constexpr int CH_LOOT_LINE_MAX = 256;
 constexpr int CH_LOOT_MODEL_MAX = 64;
 
@@ -32,6 +35,7 @@ void CCrowbarHuntLootSpawn::Precache()
 		pev->model = MAKE_STRING(CH_DEFAULT_LOOT_MODEL);
 
 	PRECACHE_MODEL(STRING(pev->model));
+	PRECACHE_SOUND(CH_LOOT_PICKUP_SOUND);
 }
 
 void CCrowbarHuntLootSpawn::Spawn()
@@ -86,7 +90,7 @@ void CCrowbarHuntLoot::LootTouch(CBaseEntity* pOther)
 	if (!pRules || !pRules->CollectLoot(static_cast<CBasePlayer*>(pOther)))
 		return;
 
-	EMIT_SOUND(ENT(pev), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
+	EMIT_SOUND(ENT(pev), CHAN_ITEM, CH_LOOT_PICKUP_SOUND, 1, ATTN_NORM);
 	SetTouch(nullptr);
 	UTIL_Remove(this);
 }
@@ -140,6 +144,10 @@ int CH_LoadLootFile(CHLootSpawn* pTable, int maxCount)
 {
 	char szPath[128];
 	snprintf(szPath, sizeof(szPath), "maps/%s_loot.txt", STRING(gpGlobals->mapname));
+
+	// Here rather than with the models below because this runs on every map,
+	// file or no file, and a ch_loot_spawn map may still have a file to ignore.
+	PRECACHE_SOUND(CH_LOOT_PICKUP_SOUND);
 
 	int   fileSize = 0;
 	byte* pFile = LOAD_FILE_FOR_ME(szPath, &fileSize);
