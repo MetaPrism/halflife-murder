@@ -624,6 +624,11 @@ void CHalfLifeCrowbarHunt::ResetMapEntities()
 
 	RemoveRoundLitter();
 
+	// Decals (blood, bullet holes) are client-side only and nothing the server
+	// does to the map touches them, so tell every client to wipe its own.
+	MESSAGE_BEGIN(MSG_ALL, gmsgCHClearFX, nullptr);
+	MESSAGE_END();
+
 	for (int i = 0; i < m_numSnapshots; i++)
 	{
 		CHEntitySnapshot& snapshot = m_mapSnapshot[i];

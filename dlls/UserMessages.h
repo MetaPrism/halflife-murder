@@ -67,6 +67,11 @@ inline int gmsgCHTimer = 0;
 // arrival is also what swaps the HUD's armour readout for the loot one.
 inline int gmsgCHLoot = 0;
 
+// Crowbar Hunt: the map was just reset for a new round. Carries no data; the
+// client strips its decals (blood, bullet holes, scorch marks) on receipt,
+// since those live purely client-side and would otherwise outlast the round.
+inline int gmsgCHClearFX = 0;
+
 // Crowbar Hunt: which players are observers, so the scoreboard can file them
 // under Spectators. The base SDK client already handles this message
 // (MsgFunc_Spectator) but nothing server-side ever registered or sent it.

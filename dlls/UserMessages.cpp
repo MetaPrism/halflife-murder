@@ -69,6 +69,7 @@ void LinkUserMessages()
 	gmsgCHAnon = REG_USER_MSG("CHAnon", -1); // player slot, colour index, real name
 	gmsgCHTimer = REG_USER_MSG("CHTimer", 2); // seconds remaining, 0 hides the clock
 	gmsgCHLoot = REG_USER_MSG("CHLoot", 2);   // loot collected this round
+	gmsgCHClearFX = REG_USER_MSG("CHClearFX", 0); // map reset: client drops its decals
 	gmsgSpectator = REG_USER_MSG("Spectator", 2); // player slot, 1 if observing
 
 }

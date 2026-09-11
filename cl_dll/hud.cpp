@@ -28,6 +28,7 @@
 
 #include "demo.h"
 #include "demo_api.h"
+#include "r_efx.h"
 #include "vgui_ScorePanel.h"
 
 hud_player_info_t g_PlayerInfoList[MAX_PLAYERS_HUD + 1];	// player info from the engine
@@ -287,6 +288,39 @@ int __MsgFunc_AllowSpec(const char* pszName, int iSize, void* pbuf)
 	return 0;
 }
 
+// Crowbar Hunt: the server reset the map for a new round. Decals never leave
+// the client, so strip them here. The engine only removes decals per texture,
+// so this walks every decal the game can place (the server's gDecals table in
+// world.cpp, by name) rather than trying to enumerate the pool.
+int __MsgFunc_CHClearFX(const char* pszName, int iSize, void* pbuf)
+{
+	static const char* const decalNames[] = {
+		"{shot1", "{shot2", "{shot3", "{shot4", "{shot5",
+		"{lambda01", "{lambda02", "{lambda03", "{lambda04", "{lambda05", "{lambda06",
+		"{scorch1", "{scorch2",
+		"{blood1", "{blood2", "{blood3", "{blood4", "{blood5", "{blood6",
+		"{yblood1", "{yblood2", "{yblood3", "{yblood4", "{yblood5", "{yblood6",
+		"{break1", "{break2", "{break3",
+		"{bigshot1", "{bigshot2", "{bigshot3", "{bigshot4", "{bigshot5",
+		"{spit1", "{spit2",
+		"{bproof1",
+		"{gargstomp",
+		"{smscorch1", "{smscorch2", "{smscorch3",
+		"{mommablob",
+	};
+
+	for (const char* name : decalNames)
+	{
+		// R_DecalRemoveAll wants the decal-list index (what IndexFromName
+		// returns), not the texture number Draw_DecalIndex would map it to.
+		const int index = gEngfuncs.pEfxAPI->Draw_DecalIndexFromName(const_cast<char*>(name));
+		if (index >= 0)
+			gEngfuncs.pEfxAPI->R_DecalRemoveAll(index);
+	}
+
+	return 1;
+}
+
 // This is called every time the DLL is loaded
 // Crowbar Hunt anonymous mode: the local player's round colour, packed, or -1 for none.
 extern int GetCHAnonPackedColor(int clientIndex);
@@ -372,6 +406,7 @@ void CHud::Init()
 
 	HOOK_MESSAGE(SpecFade);
 	HOOK_MESSAGE(ResetFade);
+	HOOK_MESSAGE(CHClearFX);
 
 	// VGUI Menus
 	HOOK_MESSAGE(VGUIMenu);
