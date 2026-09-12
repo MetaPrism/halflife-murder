@@ -1114,8 +1114,11 @@ void EV_Crowbar(event_args_t* args)
 	idx = args->entindex;
 	VectorCopy(args->origin, origin);
 
-	//Play Swing sound
-	gEngfuncs.pEventAPI->EV_PlaySound(idx, origin, CHAN_WEAPON, "weapons/cbar_miss1.wav", 1, ATTN_NORM, 0, PITCH_NORM);
+	//Play Swing sound. Crowbar Hunt keeps swings quiet: the server only ever
+	//sends this event to the swinger (see CCrowbar::Swing), so this check is
+	//just the swinger's own copy staying consistent with everyone else's.
+	if (!gHUD.m_CrowbarHunt)
+		gEngfuncs.pEventAPI->EV_PlaySound(idx, origin, CHAN_WEAPON, "weapons/cbar_miss1.wav", 1, ATTN_NORM, 0, PITCH_NORM);
 
 	if (EV_IsLocal(idx))
 	{

@@ -193,6 +193,14 @@ public:
 	// default allow_spectators/StartObserver path is skipped. See ClientCommand().
 	virtual bool HandleSpectateCommand(CBasePlayer* pPlayer) { return false; }
 
+	// Sounds whose only job is to tell everyone in earshot what just happened
+	// out of sight: a crowbar swung or landing on a body, a weapon picked up,
+	// the HEV death alarm. A stealth mode says no and they are never emitted,
+	// which is the only way to remove them fairly - a client can put back any
+	// .wav it likes, but not a sound event the server never sent. Sounds that
+	// stay (crowbar on a wall, pain grunts, gunfire) are not consulted here.
+	virtual bool PlayGiveawaySounds() { return true; }
+
 protected:
 	CBasePlayerItem* FindNextBestWeapon(CBasePlayer* pPlayer, CBasePlayerItem* pCurrentWeapon);
 };

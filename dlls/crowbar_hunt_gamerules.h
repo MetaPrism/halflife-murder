@@ -139,6 +139,11 @@ public:
 	// them back, so CBreakable::Die() must not free their edict.
 	bool ShouldPreserveBrokenEntities() override { return true; }
 
+	// Crowbar swings, body hits, weapon pickups and the death alarm all give
+	// away the Killer (or that someone just died) from out of sight. Silence
+	// them for everyone; wall hits stay audible.
+	bool PlayGiveawaySounds() override { return false; }
+
 	// Armour is not part of the game - there is no loadout that has it and the
 	// map's batteries are removed - so the wall chargers are spawned drained
 	// and never refill. They still hum and deny like a used-up one would.

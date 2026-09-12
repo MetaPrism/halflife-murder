@@ -301,7 +301,10 @@ void CCrowbarProjectile::FlyTouch(CBaseEntity* pOther)
 		pOther->TakeDamage(pev, pThrower ? pThrower->pev : pev, gSkillData.plrDmgCrowbar, DMG_CLUB);
 
 		if (pOther->IsPlayer() || (pOther->Classify() != CLASS_NONE && pOther->Classify() != CLASS_MACHINE))
-			EMIT_SOUND(ENT(pev), CHAN_WEAPON, "weapons/cbar_hitbod1.wav", 1, ATTN_NORM);
+		{
+			if (g_pGameRules->PlayGiveawaySounds())
+				EMIT_SOUND(ENT(pev), CHAN_WEAPON, "weapons/cbar_hitbod1.wav", 1, ATTN_NORM);
+		}
 		else
 			EMIT_SOUND(ENT(pev), CHAN_WEAPON, "weapons/cbar_hit1.wav", 1, ATTN_NORM);
 	}
@@ -415,7 +418,8 @@ bool CCrowbarProjectile::GiveBackToThrower()
 		return false;
 
 	pPlayer->GiveNamedItem("weapon_crowbar");
-	EMIT_SOUND(ENT(pPlayer->pev), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
+	if (g_pGameRules->PlayGiveawaySounds())
+		EMIT_SOUND(ENT(pPlayer->pev), CHAN_ITEM, "items/gunpickup2.wav", 1, ATTN_NORM);
 
 	RemoveBar();
 	return true;
@@ -470,7 +474,8 @@ void CCrowbar::SecondaryAttack()
 
 	m_pPlayer->SetAnimation(PLAYER_ATTACK1);
 	SendWeaponAnim(CROWBAR_ATTACK1MISS);
-	EMIT_SOUND_DYN(ENT(m_pPlayer->pev), CHAN_WEAPON, "weapons/cbar_miss1.wav", 1, ATTN_NORM, 0, 98 + RANDOM_LONG(0, 3));
+	if (g_pGameRules->PlayGiveawaySounds())
+		EMIT_SOUND_DYN(ENT(m_pPlayer->pev), CHAN_WEAPON, "weapons/cbar_miss1.wav", 1, ATTN_NORM, 0, 98 + RANDOM_LONG(0, 3));
 
 	// The bar is gone: strip the weapon so the Killer is empty-handed until they
 	// retrieve it. Deferred a tick because RemovePlayerItem() holsters the active
@@ -550,7 +555,18 @@ bool CCrowbar::Swing(bool fFirst)
 
 	if (fFirst)
 	{
-		PLAYBACK_EVENT_FULL(FEV_NOTHOST, m_pPlayer->edict(), m_usCrowbar,
+		// The event is the swing sound plus, for the swinger, the view model
+		// animation. When the swing must stay quiet only the swinger needs it
+		// (and only when they are not predicting it themselves): HOSTONLY on
+		// top of NOTHOST means nobody else is ever sent the event, so no client
+		// can hear a swing it was never told about. EV_Crowbar() then skips the
+		// sound on the swinger's own machine.
+		int flags = FEV_NOTHOST;
+#ifndef CLIENT_DLL
+		if (!g_pGameRules->PlayGiveawaySounds())
+			flags |= FEV_HOSTONLY;
+#endif
+		PLAYBACK_EVENT_FULL(flags, m_pPlayer->edict(), m_usCrowbar,
 			0.0, g_vecZero, g_vecZero, 0, 0, 0,
 			0.0, 0, 0.0);
 	}
@@ -621,7 +637,7 @@ bool CCrowbar::Swing(bool fFirst)
 			if (pEntity->Classify() != CLASS_NONE && pEntity->Classify() != CLASS_MACHINE)
 			{
 				// play thwack or smack sound
-				switch (RANDOM_LONG(0, 2))
+				switch (g_pGameRules->PlayGiveawaySounds() ? RANDOM_LONG(0, 2) : -1)
 				{
 				case 0:
 					EMIT_SOUND(ENT(m_pPlayer->pev), CHAN_ITEM, "weapons/cbar_hitbod1.wav", 1, ATTN_NORM);
