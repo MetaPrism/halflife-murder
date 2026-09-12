@@ -450,6 +450,25 @@ private:
 	int m_iRole; // last value the server sent; 0 draws nothing
 };
 
+// Crowbar Hunt voice falloff by distance. Draws nothing. See ch_proxvoice.cpp.
+class CHudCHProxVoice : public CHudBase
+{
+public:
+	bool Init() override;
+	bool VidInit() override;
+	void InitHUDData() override;
+	void Think() override;
+	bool MsgFunc_CHProxVoice(const char* pszName, int iSize, void* pbuf);
+
+private:
+	void RestoreBaseline();
+
+	bool m_bActive;      // server says fade applies to us right now
+	float m_flRadius;    // the server's hard cutoff, in world units
+	bool m_bScaling;     // we currently own OtherSpeakerScale
+	float m_flBaseline;  // the player's own setting, to put back
+};
+
 class CHudTextMessage : public CHudBase
 {
 public:
@@ -639,6 +658,7 @@ public:
 	CHudCHTimer m_CHTimer;
 	CHudCHLoot m_CHLoot;
 	CHudCHRole m_CHRole;
+	CHudCHProxVoice m_CHProxVoice;
 
 	void Init();
 	void VidInit();

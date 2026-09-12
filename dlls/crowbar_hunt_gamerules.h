@@ -159,8 +159,10 @@ public:
 	bool HandleSpectateCommand(CBasePlayer* pPlayer) override;
 	bool ClientCommand(CBasePlayer* pPlayer, const char* pcmd) override;
 
-	// Proximity voice chat, when ch_proxvoice is on: hiding is the Survivors'
-	// main defence, so a voice that carries the whole map would give them away.
+	// Voice rules for a live round. The dead never reach the living (dying
+	// must not be a way to name the Killer), and with ch_proxvoice on the
+	// living only hear each other nearby: hiding is the Survivors' main
+	// defence, so a voice that carries the whole map would give them away.
 	bool CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker) override;
 
 	// The Hunter is never told who the Killer is, so nothing but a penalty
@@ -394,6 +396,11 @@ private:
 	// Spectators. Only voluntary spectators count: the round's dead stay under
 	// Players. The client cannot work any of this out on its own.
 	void ServiceSpectatorState(CBasePlayer* pPlayer);
+
+	// Tell a client whether distance falloff applies to the voices it hears,
+	// whenever that changes. The client cannot know ch_proxvoice or the round
+	// state on its own; it does the per-frame fading itself.
+	void ServiceProxVoiceState(CBasePlayer* pPlayer);
 	static void SendSpectatorState(CBasePlayer* pPlayer, bool bObserver, edict_t* pTarget);
 
 	// Leave a visible body behind at the point a player was killed.
@@ -444,6 +451,10 @@ private:
 	// "never sent", which forces a send on a slot's first PlayerThink(). Same indexing
 	// as m_playerRoles, and cleared with it.
 	int m_iSentSpectator[MAX_PLAYERS + 1];
+
+	// The proximity-falloff state last sent to each slot, same scheme as
+	// m_iSentSpectator: 0, 1, or -1 for "never sent".
+	int m_iSentProxVoice[MAX_PLAYERS + 1];
 
 	// gpGlobals->time each punished player's penalty runs out, or 0 for no
 	// penalty. Same indexing as m_playerRoles, and cleared with it: the penalty

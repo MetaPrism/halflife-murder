@@ -74,6 +74,7 @@ target_sources(client PRIVATE
 	ch_timer.cpp
 	ch_loot.cpp
 	ch_role.cpp
+	ch_proxvoice.cpp
 	death.cpp
 	demo.cpp
 	entity.cpp

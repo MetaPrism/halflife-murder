@@ -81,4 +81,10 @@ inline int gmsgCHClearFX = 0;
 // (MsgFunc_Spectator) but nothing server-side ever registered or sent it.
 inline int gmsgSpectator = 0;
 
+// Crowbar Hunt: whether the receiving client should fade other players'
+// voices by distance: 1 while proximity voice applies to them (ch_proxvoice
+// on, round live, player alive), 0 otherwise, then the radius in world units.
+// Comfort only - the server's voice mask still decides who is heard at all.
+inline int gmsgCHProxVoice = 0;
+
 void LinkUserMessages();

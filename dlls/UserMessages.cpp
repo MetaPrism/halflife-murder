@@ -72,5 +72,6 @@ void LinkUserMessages()
 	gmsgCHRole = REG_USER_MSG("CHRole", 1);   // role label, 0 hides it
 	gmsgCHClearFX = REG_USER_MSG("CHClearFX", 0); // map reset: client drops its decals
 	gmsgSpectator = REG_USER_MSG("Spectator", 2); // player slot, 1 if observing
+	gmsgCHProxVoice = REG_USER_MSG("CHProxVoice", 3); // fade voices by distance: on/off, radius
 
 }

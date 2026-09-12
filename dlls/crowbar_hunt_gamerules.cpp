@@ -1661,6 +1661,7 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_flPunishEndTime[index] = 0.0f;
 	m_flSendServerName[index] = 0.0f;
 	m_iSentSpectator[index] = -1;
+	m_iSentProxVoice[index] = -1;
 	m_flSpectatePromptExpires[index] = 0.0f;
 	m_iLootCount[index] = 0;
 	m_iLootRewards[index] = 0;
@@ -1764,6 +1765,7 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 
 	// After the above, so a player parked this frame is reported this frame.
 	ServiceSpectatorState(pPlayer);
+	ServiceProxVoiceState(pPlayer);
 
 	if (!pPlayer->IsAlive() || m_roundState != CHRoundState::InProgress)
 		return;
@@ -2167,9 +2169,6 @@ bool CHalfLifeCrowbarHunt::CanHaveAmmo(CBasePlayer* pPlayer, const char* pszAmmo
 
 bool CHalfLifeCrowbarHunt::CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlayer* pTalker)
 {
-	if (0 == ch_proxvoice.value)
-		return true;
-
 	// Only a live round is worth keeping quiet. Between rounds everyone is
 	// standing around waiting, so let the lobby talk.
 	if (m_roundState != CHRoundState::InProgress)
@@ -2179,7 +2178,9 @@ bool CHalfLifeCrowbarHunt::CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlay
 		return true;
 
 	// StartObserver() leaves the dead on DEAD_RESPAWNABLE, so IsAlive() is what
-	// separates players still in the round from those watching it.
+	// separates players still in the round from those watching it. This does
+	// not depend on ch_proxvoice: the dead are gagged whether or not a living
+	// voice is range-limited.
 	if (!pTalker->IsAlive())
 	{
 		// The dead talk freely among themselves, but nothing they say reaches
@@ -2190,6 +2191,9 @@ bool CHalfLifeCrowbarHunt::CanPlayerHearPlayer(CBasePlayer* pListener, CBasePlay
 	// An observer's origin is wherever they died, not what they are watching,
 	// so distance would be meaningless for them. Let them hear the whole map.
 	if (!pListener->IsAlive())
+		return true;
+
+	if (0 == ch_proxvoice.value)
 		return true;
 
 	return (pTalker->pev->origin - pListener->pev->origin).Length() <= CH_PROXVOICE_RADIUS;
@@ -2926,6 +2930,30 @@ void CHalfLifeCrowbarHunt::ServiceSpectatorState(CBasePlayer* pPlayer)
 
 	m_iSentSpectator[index] = observer;
 	SendSpectatorState(pPlayer, observer != 0, NULL);
+}
+
+void CHalfLifeCrowbarHunt::ServiceProxVoiceState(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	// Mirrors the distance branch of CanPlayerHearPlayer(): falloff only
+	// makes sense where the hard cutoff is in force. The dead hear the whole
+	// map at full volume, and so does everyone between rounds.
+	const int active = (0 != ch_proxvoice.value
+						   && m_roundState == CHRoundState::InProgress
+						   && pPlayer->IsAlive())
+						   ? 1
+						   : 0;
+
+	if (m_iSentProxVoice[index] == active)
+		return;
+
+	m_iSentProxVoice[index] = active;
+
+	MESSAGE_BEGIN(MSG_ONE, gmsgCHProxVoice, nullptr, pPlayer->pev);
+	WRITE_BYTE(active);
+	WRITE_SHORT(static_cast<int>(CH_PROXVOICE_RADIUS));
+	MESSAGE_END();
 }
 
 // Snapshot a player's body into a standalone entity, so it stays visible after
