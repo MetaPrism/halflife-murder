@@ -482,6 +482,9 @@ cvar_t ch_loot_killer_gun = {"ch_loot_killer_gun", "0", FCVAR_SERVER};
 
 cvar_t ch_anonymous = {"ch_anonymous", "1", FCVAR_SERVER};
 
+cvar_t ch_disguise = {"ch_disguise", "1", FCVAR_SERVER};
+cvar_t ch_disguise_cost = {"ch_disguise_cost", "1", FCVAR_SERVER};
+
 cvar_t ch_killer_decay = {"ch_killer_decay", "0.25", FCVAR_SERVER};
 cvar_t ch_killer_recover = {"ch_killer_recover", "0.25", FCVAR_SERVER};
 cvar_t ch_killer_min_weight = {"ch_killer_min_weight", "0.05", FCVAR_SERVER};
@@ -565,6 +568,8 @@ void GameDLLInit()
 	CVAR_REGISTER(&ch_loot_reward);
 	CVAR_REGISTER(&ch_loot_killer_gun);
 	CVAR_REGISTER(&ch_anonymous);
+	CVAR_REGISTER(&ch_disguise);
+	CVAR_REGISTER(&ch_disguise_cost);
 	CVAR_REGISTER(&ch_killer_decay);
 	CVAR_REGISTER(&ch_killer_recover);
 	CVAR_REGISTER(&ch_killer_min_weight);

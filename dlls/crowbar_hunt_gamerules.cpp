@@ -169,11 +169,35 @@ int PlayerRemapColor(CBasePlayer* pPlayer, const char* pszKey)
 // EF_NODRAW, modelindex 0, no longer transmitted by AddToFullPack() - so there
 // is nothing left for that corpse to copy and it renders as nothing. This one
 // owns its model outright and does not care what the player does afterwards.
+//
+// It is also the Killer's wardrobe: +use on a body offers its identity to
+// whoever is standing over it, and TryDisguise() decides if they may have it.
+// The identity is copied in at death rather than read off the player later,
+// since the slot may have been handed to someone else by then.
 class CCrowbarHuntCorpse : public CBaseEntity
 {
 public:
-	int ObjectCaps() override { return FCAP_DONT_SAVE; }
+	int  ObjectCaps() override { return FCAP_DONT_SAVE | FCAP_IMPULSE_USE; }
+	void Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType, float value) override;
+
+	// Who this was, exactly as the room saw them when they died: the name and
+	// colours they were wearing, disguise or deal or their own.
+	char m_szName[CH_MAX_ANON_NAME];
+	int  m_iTopColor;
+	int  m_iBottomColor;
+	int  m_iAnonColor; // index into g_CHAnonColors for the name colour, -1 for none
 };
+
+void CCrowbarHuntCorpse::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType, float value)
+{
+	if (!pActivator || !pActivator->IsPlayer())
+		return;
+
+	CHalfLifeCrowbarHunt* pRules = CH_GetCrowbarHuntRules();
+
+	if (pRules)
+		pRules->TryDisguise(static_cast<CBasePlayer*>(pActivator), this);
+}
 
 LINK_ENTITY_TO_CLASS(ch_corpse, CCrowbarHuntCorpse);
 
@@ -480,6 +504,10 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole, const char* pszMessage)
 {
 	SetRoundState(CHRoundState::RoundEnd);
 
+	// The round is decided: whoever was wearing a dead player's face shows
+	// their own (this round's) one for the reveal.
+	ClearAllDisguises();
+
 	const char* msg = "Round over.";
 	switch (winningRole)
 	{
@@ -665,6 +693,7 @@ void CHalfLifeCrowbarHunt::ResetForNextRound()
 	}
 
 	ClearPunishments();
+	ClearAllDisguises();
 
 	SetRoundState(CHRoundState::WaitingForPlayers);
 
@@ -1075,6 +1104,10 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 	// So does a loot haul.
 	ClearLootCounts();
 
+	// And a disguise - before the deal, or the new identity would go on
+	// under it.
+	ClearAllDisguises();
+
 	// New round, new faces. Deliberately not done in ResetForNextRound(): the
 	// disguises stay on between rounds so nobody's real name flashes up on the
 	// scoreboard in the gap.
@@ -1382,29 +1415,67 @@ void CHalfLifeCrowbarHunt::ClearAnonIdentities()
 
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
-		CBasePlayer* pPlayer = GetPlayerByIndex(i);
-
 		m_anonColor[i] = -1;
 
-		if (!pPlayer || m_realTopColor[i] < 0)
-			continue;
-
-		char* infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict());
-		char  szValue[16];
-
-		snprintf(szValue, sizeof(szValue), "%d", m_realTopColor[i]);
-		g_engfuncs.pfnSetClientKeyValue(i, infobuffer, "topcolor", szValue);
-		snprintf(szValue, sizeof(szValue), "%d", m_realBottomColor[i]);
-		g_engfuncs.pfnSetClientKeyValue(i, infobuffer, "bottomcolor", szValue);
-
-		if (m_szRealName[i][0] != '\0')
-		{
-			g_engfuncs.pfnSetClientKeyValue(i, infobuffer, "name", m_szRealName[i]);
-			pPlayer->pev->netname = ALLOC_STRING(m_szRealName[i]);
-		}
+		// A disguise is worn over the anonymous identity, so a slot wearing
+		// one keeps showing it; the real name waits until that comes off.
+		if (!m_bDisguised[i])
+			RestoreRealIdentity(i);
 	}
 
 	SendAnonColors(nullptr);
+}
+
+void CHalfLifeCrowbarHunt::RestoreRealIdentity(int index)
+{
+	CBasePlayer* pPlayer = GetPlayerByIndex(index);
+
+	if (!pPlayer || m_realTopColor[index] < 0)
+		return;
+
+	char* infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict());
+	char  szValue[16];
+
+	snprintf(szValue, sizeof(szValue), "%d", m_realTopColor[index]);
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "topcolor", szValue);
+	snprintf(szValue, sizeof(szValue), "%d", m_realBottomColor[index]);
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "bottomcolor", szValue);
+
+	if (m_szRealName[index][0] != '\0')
+	{
+		g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "name", m_szRealName[index]);
+		pPlayer->pev->netname = ALLOC_STRING(m_szRealName[index]);
+	}
+}
+
+void CHalfLifeCrowbarHunt::ApplyIdentity(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return;
+
+	if (!m_bDisguised[index])
+	{
+		if (m_bAnonActive)
+			ApplyAnonIdentity(pPlayer);
+
+		return;
+	}
+
+	// Same restamp as ApplyAnonIdentity(), with the dead player's values. The
+	// colours are the raw remap bytes off their userinfo rather than a table
+	// hue, since with anonymous mode off they were wearing their own.
+	char* infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict());
+	char  szValue[16];
+
+	snprintf(szValue, sizeof(szValue), "%d", m_iDisguiseTopColor[index]);
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "topcolor", szValue);
+	snprintf(szValue, sizeof(szValue), "%d", m_iDisguiseBottomColor[index]);
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "bottomcolor", szValue);
+
+	g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "name", m_szDisguiseName[index]);
+	pPlayer->pev->netname = ALLOC_STRING(m_szDisguiseName[index]);
 }
 
 void CHalfLifeCrowbarHunt::SendAnonColors(CBasePlayer* pTo) const
@@ -1414,7 +1485,14 @@ void CHalfLifeCrowbarHunt::SendAnonColors(CBasePlayer* pTo) const
 		if (!GetPlayerByIndex(i))
 			continue;
 
-		const int color = m_bAnonActive ? m_anonColor[i] : -1;
+		// A disguise shows the dead player's name colour, whatever the round
+		// dealt underneath it.
+		int color;
+
+		if (m_bDisguised[i])
+			color = m_iDisguiseAnonColor[i];
+		else
+			color = m_bAnonActive ? m_anonColor[i] : -1;
 
 		if (pTo)
 			MESSAGE_BEGIN(MSG_ONE, gmsgCHAnon, nullptr, pTo->pev);
@@ -1429,7 +1507,10 @@ void CHalfLifeCrowbarHunt::SendAnonColors(CBasePlayer* pTo) const
 		// only route the real name has to a client - and it is deliberately
 		// the only place a client is allowed to use it. Empty while nobody is
 		// disguised, which is the client's cue to go back to the name key.
-		WRITE_STRING(color < 0 ? "" : m_szRealName[i]);
+		// A disguised player's name key is a lie even with anonymous mode
+		// off, so the scoreboard needs the real one from here regardless of
+		// whether there is a colour to go with it.
+		WRITE_STRING((color < 0 && !m_bDisguised[i]) ? "" : m_szRealName[i]);
 
 		MESSAGE_END();
 	}
@@ -1447,8 +1528,103 @@ void CHalfLifeCrowbarHunt::ClientUserInfoChanged(CBasePlayer* pPlayer, char* inf
 	// anonymous mode is on right now - the cvar can go on mid-map.
 	StashRealIdentity(pPlayer, infobuffer);
 
+	ApplyIdentity(pPlayer);
+}
+
+// ---------------------------------------------------------------------------
+// Disguise
+//
+// The Killer can +use a corpse and, for ch_disguise_cost loot, walk away
+// wearing its name and colours. It is the same userinfo restamp anonymous mode
+// runs every round, just aimed at one victim's identity instead of a random
+// draw - so it reaches the model, the chat name and the voice HUD the same
+// way, and the scoreboard keeps showing the real name the same way. The model
+// is not touched, for the same reason anonymous mode leaves it alone.
+//
+// It comes off on the Killer's next kill: a body they made while wearing it
+// is the one thing that should be able to give the disguise away. Round end
+// takes it off too, so the reveal shows who was really under it.
+// ---------------------------------------------------------------------------
+bool CHalfLifeCrowbarHunt::TryDisguise(CBasePlayer* pPlayer, CCrowbarHuntCorpse* pCorpse)
+{
+	if (ch_disguise.value == 0 || !pCorpse)
+		return false;
+
+	if (m_roundState != CHRoundState::InProgress || !pPlayer->IsAlive())
+		return false;
+
+	// Everyone else gets nothing - not even a message, since "you can't do
+	// that" on a corpse would tell a Survivor that somebody can.
+	if (GetPlayerRole(pPlayer) != CHRole::Killer)
+		return false;
+
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return false;
+
+	if (m_bDisguised[index] && 0 == strcmp(m_szDisguiseName[index], pCorpse->m_szName))
+	{
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You are already wearing this face.\n");
+		return false;
+	}
+
+	int cost = static_cast<int>(ch_disguise_cost.value);
+
+	if (cost < 0)
+		cost = 0;
+
+	if (m_iLootCount[index] < cost)
+	{
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, UTIL_VarArgs("A disguise costs %d loot - you have %d.\n", cost, m_iLootCount[index]));
+		return false;
+	}
+
+	m_iLootCount[index] -= cost;
+	SendLootCount(pPlayer);
+
+	m_bDisguised[index] = true;
+	strncpy(m_szDisguiseName[index], pCorpse->m_szName, CH_MAX_ANON_NAME - 1);
+	m_szDisguiseName[index][CH_MAX_ANON_NAME - 1] = '\0';
+	m_iDisguiseTopColor[index]    = pCorpse->m_iTopColor;
+	m_iDisguiseBottomColor[index] = pCorpse->m_iBottomColor;
+	m_iDisguiseAnonColor[index]   = pCorpse->m_iAnonColor;
+
+	ApplyIdentity(pPlayer);
+	SendAnonColors(nullptr);
+
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, UTIL_VarArgs("You are now %s. Your next kill will give you away.\n", m_szDisguiseName[index]));
+	return true;
+}
+
+void CHalfLifeCrowbarHunt::ClearDisguise(CBasePlayer* pPlayer, bool bTell)
+{
+	if (!pPlayer)
+		return;
+
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS || !m_bDisguised[index])
+		return;
+
+	m_bDisguised[index] = false;
+
+	// Back to whatever is underneath: the round's identity, or their own.
 	if (m_bAnonActive)
 		ApplyAnonIdentity(pPlayer);
+	else
+		RestoreRealIdentity(index);
+
+	SendAnonColors(nullptr);
+
+	if (bTell)
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Your disguise is gone.\n");
+}
+
+void CHalfLifeCrowbarHunt::ClearAllDisguises()
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+		ClearDisguise(GetPlayerByIndex(i), false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1499,6 +1675,12 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_szRealName[index][0] = '\0';
 	m_realTopColor[index] = -1;
 	m_realBottomColor[index] = -1;
+
+	m_bDisguised[index] = false;
+	m_szDisguiseName[index][0] = '\0';
+	m_iDisguiseTopColor[index] = 0;
+	m_iDisguiseBottomColor[index] = 0;
+	m_iDisguiseAnonColor[index] = -1;
 }
 
 // Wiped at both ends of an occupancy rather than just on the way out, so a slot
@@ -2748,18 +2930,19 @@ void CHalfLifeCrowbarHunt::ServiceSpectatorState(CBasePlayer* pPlayer)
 
 // Snapshot a player's body into a standalone entity, so it stays visible after
 // StartObserver() makes the player themselves disappear.
-void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer)
+void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer) const
 {
 	// A gibbed player has had pev->model cleared - there is no body to leave.
 	if (FStringNull(pPlayer->pev->model))
 		return;
 
-	CBaseEntity* pCorpse = CBaseEntity::Create("ch_corpse", pPlayer->pev->origin, pPlayer->pev->angles);
+	CBaseEntity* pEntity = CBaseEntity::Create("ch_corpse", pPlayer->pev->origin, pPlayer->pev->angles);
 
-	if (!pCorpse)
+	if (!pEntity)
 		return;
 
-	entvars_t* pev = pCorpse->pev;
+	CCrowbarHuntCorpse* pCorpse = static_cast<CCrowbarHuntCorpse*>(pEntity);
+	entvars_t*          pev     = pCorpse->pev;
 
 	SET_MODEL(ENT(pev), STRING(pPlayer->pev->model));
 
@@ -2780,7 +2963,21 @@ void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer)
 	// packing both studio draw paths unpack. Reading them here rather than
 	// letting the client read the live ones freezes the body as it was at the
 	// moment of death, so it can't restyle itself later and give its owner away.
-	pev->colormap = PlayerRemapColor(pPlayer, "topcolor") | (PlayerRemapColor(pPlayer, "bottomcolor") << 8);
+	pCorpse->m_iTopColor    = PlayerRemapColor(pPlayer, "topcolor");
+	pCorpse->m_iBottomColor = PlayerRemapColor(pPlayer, "bottomcolor");
+	pev->colormap = pCorpse->m_iTopColor | (pCorpse->m_iBottomColor << 8);
+
+	// And the name to go with them, for a Killer who wants to borrow it. What
+	// the room knew them as, which is not necessarily who they are.
+	const int slot = ENTINDEX(pPlayer->edict());
+
+	strncpy(pCorpse->m_szName, STRING(pPlayer->pev->netname), CH_MAX_ANON_NAME - 1);
+	pCorpse->m_szName[CH_MAX_ANON_NAME - 1] = '\0';
+
+	if (m_bDisguised[slot])
+		pCorpse->m_iAnonColor = m_iDisguiseAnonColor[slot];
+	else
+		pCorpse->m_iAnonColor = m_bAnonActive ? m_anonColor[slot] : -1;
 
 	pev->skin = pPlayer->pev->skin;
 	pev->body = pPlayer->pev->body;
@@ -2823,6 +3020,16 @@ void CHalfLifeCrowbarHunt::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller
 	if (pVictim && GetPlayerRole(pVictim) == CHRole::Hunter && pVictim->HasNamedPlayerItem("weapon_357"))
 	{
 		CH_DropRevolver(pVictim);
+	}
+
+	// A kill takes the killer's disguise off. Only the Killer can be wearing
+	// one, so no role check is needed; suicides are not kills.
+	if (pKiller && (pKiller->flags & FL_CLIENT) != 0 && pVictim && pKiller != pVictim->pev)
+	{
+		CBaseEntity* pKillerEntity = CBaseEntity::Instance(pKiller);
+
+		if (pKillerEntity && pKillerEntity->IsPlayer())
+			ClearDisguise(static_cast<CBasePlayer*>(pKillerEntity), true);
 	}
 
 	// The victim's health is already <= 0 here (CBasePlayer::Killed() calls us

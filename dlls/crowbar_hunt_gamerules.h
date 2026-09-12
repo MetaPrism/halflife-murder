@@ -42,7 +42,7 @@ enum class CHRole
 
 // How long, in seconds, after the round is decided before the result goes up
 // on screen - a beat for the last kill to land before the verdict.
-#define CH_ROUND_OVER_DELAY 3.0f
+#define CH_ROUND_OVER_DELAY 2.0f
 
 // Played to everyone as the result appears. Placeholder until one is chosen.
 #define CH_ROUND_OVER_SOUND "buttons/bell1.wav"
@@ -86,6 +86,8 @@ enum class CHRoundState
 	InProgress,        // round is live, win conditions are being checked
 	RoundEnd,          // showing round result, waiting to restart
 };
+
+class CCrowbarHuntCorpse;
 
 class CHalfLifeCrowbarHunt : public CHalfLifeMultiplay
 {
@@ -139,9 +141,9 @@ public:
 	// them back, so CBreakable::Die() must not free their edict.
 	bool ShouldPreserveBrokenEntities() override { return true; }
 
-	// Crowbar swings, body hits, weapon pickups and the death alarm all give
-	// away the Killer (or that someone just died) from out of sight. Silence
-	// them for everyone; wall hits stay audible.
+	// Crowbar swings, body hits, weapon pickups, death cries and the death
+	// alarm all give away the Killer (or that someone just died) from out of
+	// sight. Silence them for everyone; wall hits stay audible.
 	bool PlayGiveawaySounds() override { return false; }
 
 	// Armour is not part of the game - there is no loadout that has it and the
@@ -208,6 +210,11 @@ public:
 
 	// Dump the loot table to the server console, for "ch_loot_list".
 	void PrintLootTable();
+
+	// A player +used a corpse. If they are the Killer and can pay, they walk
+	// away wearing the dead player's name and colours - see the disguise
+	// section in the .cpp. Returns whether a disguise was put on.
+	bool TryDisguise(CBasePlayer* pPlayer, CCrowbarHuntCorpse* pCorpse);
 
 	bool        IsMultiplayer() override { return true; }
 	bool        IsDeathmatch() override { return true; }
@@ -341,6 +348,20 @@ private:
 	// list if it is missing or empty.
 	static void LoadAnonNames();
 
+	// Put one slot's own name and colours back, if they were ever stashed.
+	void RestoreRealIdentity(int index);
+
+	// Stamp whatever a slot should currently be seen as over their userinfo:
+	// a disguise if they are wearing one, else the round's anonymous identity
+	// if one is active, else nothing. The one entry point for "re-apply".
+	void ApplyIdentity(CBasePlayer* pPlayer);
+
+	// --- disguise ---
+	// Take a disguise off one player, or off everyone. Both fall back to the
+	// identity underneath (anonymous or real) and tell clients.
+	void ClearDisguise(CBasePlayer* pPlayer, bool bTell);
+	void ClearAllDisguises();
+
 	// --- player iteration ---
 	// Returns the connected player in slot "index" (1..maxClients), or null.
 	static CBasePlayer* GetPlayerByIndex(int index);
@@ -376,7 +397,7 @@ private:
 	static void SendSpectatorState(CBasePlayer* pPlayer, bool bObserver, edict_t* pTarget);
 
 	// Leave a visible body behind at the point a player was killed.
-	static void LeaveCorpse(CBasePlayer* pPlayer);
+	void LeaveCorpse(CBasePlayer* pPlayer) const;
 
 	void CheckRoundWinConditions();
 
@@ -449,6 +470,16 @@ private:
 	char m_szRealName[MAX_PLAYERS + 1][CH_MAX_ANON_NAME];
 	int  m_realTopColor[MAX_PLAYERS + 1];
 	int  m_realBottomColor[MAX_PLAYERS + 1];
+
+	// Disguise state, indexed like m_playerRoles and cleared with it. Only the
+	// Killer ever wears one, but it is kept per slot so the identity code does
+	// not have to know who the Killer is. It sits *over* the anonymous identity
+	// rather than replacing it, so taking it off puts back whatever was dealt.
+	bool m_bDisguised[MAX_PLAYERS + 1];
+	char m_szDisguiseName[MAX_PLAYERS + 1][CH_MAX_ANON_NAME];
+	int  m_iDisguiseTopColor[MAX_PLAYERS + 1];
+	int  m_iDisguiseBottomColor[MAX_PLAYERS + 1];
+	int  m_iDisguiseAnonColor[MAX_PLAYERS + 1]; // the name colour clients draw, -1 for none
 
 	// Spawn-time state of every resettable map entity, taken once on the first
 	// frame after the map has finished spawning its entities.

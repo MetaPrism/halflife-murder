@@ -261,7 +261,7 @@ void CBasePlayer::DeathSound()
 	*/
 
 	// temporarily using pain sounds for death sounds
-	switch (RANDOM_LONG(1, 5))
+	switch (g_pGameRules->PlayGiveawaySounds() ? RANDOM_LONG(1, 5) : 0)
 	{
 	case 1:
 		EMIT_SOUND(ENT(pev), CHAN_VOICE, "player/pl_pain5.wav", 1, ATTN_NORM);

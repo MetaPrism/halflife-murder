@@ -100,6 +100,12 @@ extern cvar_t ch_loot_killer_gun;
 // alone. 0 leaves everyone under their own name.
 extern cvar_t ch_anonymous;
 
+// Disguise: 1 lets the Killer +use a corpse to take the dead player's name and
+// colours (not their model) until their next kill or the round ends. Priced in
+// loot by ch_disguise_cost; 0 there makes it free.
+extern cvar_t ch_disguise;
+extern cvar_t ch_disguise_cost;
+
 // How the Killer draw is weighted against repeats. Every player carries a
 // weight, 1.0 by default, and the Killer is drawn in proportion to it. Whoever
 // is drawn has their weight multiplied by ch_killer_decay; everyone else who
