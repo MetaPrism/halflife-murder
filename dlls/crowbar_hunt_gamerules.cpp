@@ -244,8 +244,10 @@ static void CH_PrintKillerOdds()
 
 		// A connected player who is not in the draw right now (dead, or a
 		// mid-round joiner sitting it out) still has a weight worth seeing.
+		// The real name, not the round's: this is the console, and the whole
+		// point of it is telling the admin who is who.
 		ALERT(at_console, "  %-24s  %5.1f%%  (weight %.2f)%s\n",
-			STRING(pPlayer->pev->netname), flChance, flWeight,
+			g_pCrowbarHuntRules->GetRealName(i), flChance, flWeight,
 			flChance > 0.0f ? "" : "  [not in draw]");
 
 		++shown;
@@ -283,8 +285,60 @@ static void CH_LootList()
 	g_pCrowbarHuntRules->PrintLootTable();
 }
 
+// "ch_kick <name>" - kick a player by the name they joined with.
+//
+// The engine's own "kick <name>" matches against the userinfo name key, which
+// under anonymous mode (or a disguise) is the name the round dealt them - so
+// an admin would have to know who "Alpha" is before they could remove them.
+// This one matches the stashed real name and hands the engine the userid,
+// which is the one handle that never changes. The name the engine's kick
+// wants still works here too, so nobody has to remember which to use.
+static void CH_Kick()
+{
+	if (!g_pCrowbarHuntRules || g_pCrowbarHuntRules != g_pGameRules)
+	{
+		ALERT(at_console, "ch_kick: not running Crowbar Hunt\n");
+		return;
+	}
+
+	if (CMD_ARGC() < 2)
+	{
+		ALERT(at_console, "usage: ch_kick <name>\n");
+		return;
+	}
+
+	// Multi-word names arrive as several arguments; put them back together.
+	char szName[CH_MAX_ANON_NAME * 2] = "";
+
+	for (int i = 1; i < CMD_ARGC(); i++)
+	{
+		if (i > 1)
+			strncat(szName, " ", sizeof(szName) - strlen(szName) - 1);
+		strncat(szName, CMD_ARGV(i), sizeof(szName) - strlen(szName) - 1);
+	}
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
+	{
+		CBasePlayer* pPlayer = CHalfLifeCrowbarHunt::GetPlayerByIndexPublic(i);
+
+		if (!pPlayer)
+			continue;
+
+		if (stricmp(szName, g_pCrowbarHuntRules->GetRealName(i)) != 0 &&
+			stricmp(szName, STRING(pPlayer->pev->netname)) != 0)
+			continue;
+
+		ALERT(at_console, "ch_kick: kicking %s\n", g_pCrowbarHuntRules->GetRealName(i));
+		SERVER_COMMAND(UTIL_VarArgs("kick # %d\n", GETPLAYERUSERID(pPlayer->edict())));
+		return;
+	}
+
+	ALERT(at_console, "ch_kick: no player named \"%s\"\n", szName);
+}
+
 void InitCrowbarHuntCommands()
 {
+	g_engfuncs.pfnAddServerCommand("ch_kick", &CH_Kick);
 	g_engfuncs.pfnAddServerCommand("ch_odds", &CH_PrintKillerOdds);
 	g_engfuncs.pfnAddServerCommand("ch_loot_respawn", &CH_LootRespawn);
 	g_engfuncs.pfnAddServerCommand("ch_loot_list", &CH_LootList);
@@ -1323,6 +1377,28 @@ void CHalfLifeCrowbarHunt::StashRealIdentity(CBasePlayer* pPlayer, const char* p
 		m_realTopColor[index] = 0;
 	if (m_realBottomColor[index] < 0)
 		m_realBottomColor[index] = 0;
+}
+
+const char* CHalfLifeCrowbarHunt::GetRealName(int index) const
+{
+	if (index < 1 || index > MAX_PLAYERS)
+		return "";
+
+	// A player we have never seen userinfo from (a bot, or one that has not
+	// finished connecting) has nothing stashed - the engine's name is right.
+	if (m_szRealName[index][0] != '\0')
+		return m_szRealName[index];
+
+	edict_t* pEdict = INDEXENT(index);
+
+	return (pEdict && !FStringNull(pEdict->v.netname)) ? STRING(pEdict->v.netname) : "";
+}
+
+const char* CHalfLifeCrowbarHunt::GetClientLeaveName(edict_t* pClient)
+{
+	// Runs from ClientDisconnect() before ClientDisconnected() wipes the slot,
+	// so the stashed name is still there to read.
+	return GetRealName(ENTINDEX(pClient));
 }
 
 void CHalfLifeCrowbarHunt::ApplyAnonIdentity(CBasePlayer* pPlayer)

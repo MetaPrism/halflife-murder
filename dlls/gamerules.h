@@ -102,6 +102,10 @@ public:
 	// who is who has to be able to stop that from naming both halves at once.
 	virtual bool ShouldAnnounceNameChange() { return true; }
 
+	// The name "- X has left the game" is printed under. A mode that overrides
+	// the userinfo name key can hand back the one the player actually joined with.
+	virtual const char* GetClientLeaveName(edict_t* pClient) { return STRING(pClient->v.netname); }
+
 	// Client kills/scoring
 	virtual int IPointsForKill(CBasePlayer* pAttacker, CBasePlayer* pKilled) = 0;					// how many points do I award whoever kills this player?
 	virtual void PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller, entvars_t* pInflictor) = 0; // Called each time a player dies

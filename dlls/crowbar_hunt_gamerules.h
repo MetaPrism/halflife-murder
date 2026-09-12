@@ -179,6 +179,16 @@ public:
 	// moment the engine put a player's real name back on them.
 	bool ShouldAnnounceNameChange() override { return !m_bAnonActive; }
 
+	// "- X has left the game" names the player who joined, not the identity
+	// they were wearing: the round's name is meaningless once they are gone,
+	// and a room-wide "Alpha left" leaks nothing a scoreboard glance did not.
+	const char* GetClientLeaveName(edict_t* pClient) override;
+
+	// The name a player joined with, or "" for an empty slot. This is what
+	// the userinfo name key stops answering once a round has dealt colours
+	// and names, and what an admin means when they type a name.
+	const char* GetRealName(int index) const;
+
 	// Both ends of an occupancy wipe the slot - see ResetPlayerSlot().
 	bool ClientConnected(edict_t* pEntity, const char* pszName, const char* pszAddress, char szRejectReason[128]) override;
 	void ClientDisconnected(edict_t* pClient) override;
