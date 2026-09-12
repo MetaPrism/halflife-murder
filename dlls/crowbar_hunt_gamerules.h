@@ -34,8 +34,18 @@ enum class CHRole
 	Survivor,
 };
 
-// How often, in seconds, WaitingForPlayers reminds the server it's waiting.
-#define CH_WAITING_ANNOUNCE_INTERVAL 30.0f
+// How often, in seconds, WaitingForPlayers re-sends its on-screen notice.
+// The notice's hold time is a little longer than this, so re-sending on the
+// same channel keeps it up continuously (and the player count current) until
+// the state changes.
+#define CH_WAITING_ANNOUNCE_INTERVAL 1.0f
+
+// How long, in seconds, after the round is decided before the result goes up
+// on screen - a beat for the last kill to land before the verdict.
+#define CH_ROUND_OVER_DELAY 3.0f
+
+// Played to everyone as the result appears. Placeholder until one is chosen.
+#define CH_ROUND_OVER_SOUND "buttons/bell1.wav"
 
 // How long, in seconds, the "really spectate?" prompt stays up and its answer
 // is accepted.
@@ -205,6 +215,8 @@ private:
 	void StartRound();
 	void EndRound(CHRole winningRole, const char* pszMessage = nullptr);
 	void AnnounceWaitingForPlayers() const;
+	void ClearWaitingForPlayers() const;
+	void AnnounceRoundOver();
 	void AbortRound();        // too few players left - drop the round on the spot
 	void ResetForNextRound(); // reset roles, go back to WaitingForPlayers/PreRound
 
@@ -373,6 +385,12 @@ private:
 	// gpGlobals->time of the next "Waiting for players..." announcement
 	float m_flNextWaitingAnnounce;
 
+	// The round's result, held back by CH_ROUND_OVER_DELAY. The time it goes
+	// up, or 0 when there is nothing pending; the text is whatever EndRound()
+	// was given. See AnnounceRoundOver().
+	float m_flRoundOverAnnounceTime;
+	char  m_szRoundOverMessage[128];
+
 	// gpGlobals->time the live round is called for the Survivors, from
 	// ch_round_time. 0 while no clock is running - outside InProgress, or when
 	// the cvar is 0.
@@ -381,6 +399,7 @@ private:
 	// Push the round clock to one client, or to everyone when pTarget is null:
 	// the seconds left, or 0 to take it off the HUD.
 	void SendRoundTimer(edict_t* pTarget) const;
+	void SendRoleHud(CBasePlayer* pPlayer) const;
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
 	CHRole m_playerRoles[MAX_PLAYERS + 1];

@@ -288,6 +288,10 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	// Announce straight away the first time we tick in WaitingForPlayers.
 	m_flNextWaitingAnnounce = 0.0f;
 
+	m_flRoundOverAnnounceTime = 0.0f;
+	m_szRoundOverMessage[0]   = '\0';
+	PRECACHE_SOUND(CH_ROUND_OVER_SOUND);
+
 	m_bAnonActive = false;
 
 	for (int i = 0; i <= MAX_PLAYERS; i++)
@@ -375,6 +379,9 @@ void CHalfLifeCrowbarHunt::Think()
 		// still needs picking up. ResetForNextRound() takes them back out.
 		MoveDeadPlayersToObserver();
 
+		if (m_flRoundOverAnnounceTime != 0.0f && gpGlobals->time >= m_flRoundOverAnnounceTime)
+			AnnounceRoundOver();
+
 		if (gpGlobals->time - m_flStateEnterTime >= m_flRoundEndLength)
 			ResetForNextRound();
 		break;
@@ -383,6 +390,15 @@ void CHalfLifeCrowbarHunt::Think()
 
 void CHalfLifeCrowbarHunt::SetRoundState(CHRoundState state)
 {
+	// The waiting notice is kept alive by re-sends, so it has to be taken
+	// down explicitly when we stop waiting.
+	if (m_roundState == CHRoundState::WaitingForPlayers && state != CHRoundState::WaitingForPlayers)
+		ClearWaitingForPlayers();
+
+	// A result still waiting to go up belongs to the round we're leaving.
+	if (state != CHRoundState::RoundEnd)
+		m_flRoundOverAnnounceTime = 0.0f;
+
 	m_roundState       = state;
 	m_flStateEnterTime = gpGlobals->time;
 
@@ -447,6 +463,7 @@ void CHalfLifeCrowbarHunt::StartRound()
 
 		GiveRoleLoadout(pPlayer, role);
 		AnnounceRole(pPlayer, role);
+		SendRoleHud(pPlayer);
 	}
 
 	//i believe this line is overriding the client-side announcement
@@ -455,24 +472,78 @@ void CHalfLifeCrowbarHunt::StartRound()
 
 // pszMessage replaces the stock result line when the round ended some way
 // other than the last death - the clock running out, say.
+//
+// The result is not shown here: it is held for CH_ROUND_OVER_DELAY and put up
+// by AnnounceRoundOver() from Think(), so the kill that decided the round has
+// a moment to itself first.
 void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole, const char* pszMessage)
 {
 	SetRoundState(CHRoundState::RoundEnd);
 
-	const char* msg = "Round over.\n";
+	const char* msg = "Round over.";
 	switch (winningRole)
 	{
 	case CHRole::Killer:
-		msg = "The Killer wins the round!\n";
+		msg = "The Killer wins the round!";
 		break;
 	case CHRole::Hunter:
 	case CHRole::Survivor:
-		msg = "The Survivors win the round!\n";
+		msg = "The Survivors win the round!";
 		break;
 	default:
 		break;
 	}
-	UTIL_ClientPrintAll(HUD_PRINTCENTER, pszMessage ? pszMessage : msg);
+
+	strncpy(m_szRoundOverMessage, pszMessage ? pszMessage : msg, sizeof(m_szRoundOverMessage) - 1);
+	m_szRoundOverMessage[sizeof(m_szRoundOverMessage) - 1] = '\0';
+
+	// After SetRoundState(), which clears any pending announcement.
+	m_flRoundOverAnnounceTime = gpGlobals->time + CH_ROUND_OVER_DELAY;
+}
+
+// The delayed round result: the text EndRound() stored, as a HUD message on
+// its own channel, with CH_ROUND_OVER_SOUND played to everyone at the same
+// moment. Held for the rest of the RoundEnd state, so it drops off as the
+// next round's reset arrives.
+void CHalfLifeCrowbarHunt::AnnounceRoundOver()
+{
+	m_flRoundOverAnnounceTime = 0.0f;
+
+	hudtextparms_t parms;
+	memset(&parms, 0, sizeof(parms));
+
+	parms.x      = -1.0f;
+	parms.y      = 0.7f;
+	parms.effect = 2;
+
+	parms.r1 = 255;
+	parms.g1 = 255;
+	parms.b1 = 255;
+	parms.a1 = 255;
+
+	parms.r2 = 255;
+	parms.g2 = 255;
+	parms.b2 = 255;
+	parms.a2 = 255;
+
+	parms.fadeinTime  = 0.05f;
+	parms.fadeoutTime = 1.0f;
+	parms.holdTime    = V_max(1.0f, m_flRoundEndLength - CH_ROUND_OVER_DELAY - 1.0f);
+	parms.fxTime      = 0.25f;
+
+	// Channels 1 and 2 are the role reveal and the waiting notice.
+	parms.channel = 3;
+
+	UTIL_HudMessageAll(parms, m_szRoundOverMessage);
+
+	// Full volume for everyone, wherever they are; CHAN_STATIC keeps it clear
+	// of whatever the player's own weapon or voice channels are doing.
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pPlayer = GetPlayerByIndex(i);
+		if (pPlayer)
+			EMIT_SOUND(ENT(pPlayer->pev), CHAN_STATIC, CH_ROUND_OVER_SOUND, 1.0f, ATTN_NONE);
+	}
 }
 
 void CHalfLifeCrowbarHunt::SendRoundTimer(edict_t* pTarget) const
@@ -489,8 +560,44 @@ void CHalfLifeCrowbarHunt::SendRoundTimer(edict_t* pTarget) const
 	MESSAGE_END();
 }
 
-// Periodic reminder, on its own HUD channel so it never collides with the
-// round-result or role announcements.
+// The top-of-HUD role label. Roles are dealt in PreRound but only revealed at
+// StartRound(), so the label follows the reveal: it shows from the moment the
+// round goes live until ResetForNextRound() wipes the roles, and never for a
+// sit-out or a mid-round joiner, who have no part in the round to show.
+void CHalfLifeCrowbarHunt::SendRoleHud(CBasePlayer* pPlayer) const
+{
+	if (!pPlayer)
+		return;
+
+	int value = 0;
+	if (m_roundState == CHRoundState::InProgress || m_roundState == CHRoundState::RoundEnd)
+	{
+		switch (GetPlayerRole(pPlayer))
+		{
+		case CHRole::Killer:
+			value = 1;
+			break;
+		case CHRole::Hunter:
+			value = 2;
+			break;
+		case CHRole::Survivor:
+			value = 3;
+			break;
+		default:
+			break;
+		}
+	}
+
+	MESSAGE_BEGIN(MSG_ONE, gmsgCHRole, nullptr, pPlayer->edict());
+	WRITE_BYTE(value);
+	MESSAGE_END();
+}
+
+// Persistent notice, on its own HUD channel so it never collides with the
+// round-result or role announcements. Think() re-sends it every
+// CH_WAITING_ANNOUNCE_INTERVAL; the engine replaces a channel's message in
+// place, and the hold outlasts the interval, so it reads as one steady
+// message that stays up until ClearWaitingForPlayers().
 void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
 {
 	char szText[128];
@@ -502,7 +609,7 @@ void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
 
 	parms.x      = -1.0f; // centred horizontally
 	parms.y      = 0.7f;
-	parms.effect = 2; // write-out scan, matching the role announcements
+	parms.effect = 0; // plain fade; a scan effect would replay on every re-send
 
 	parms.r1 = 200;
 	parms.g1 = 200;
@@ -514,14 +621,29 @@ void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
 	parms.b2 = 255;
 	parms.a2 = 255;
 
-	parms.fadeinTime  = 0.05f;
-	parms.fadeoutTime = 1.0f;
-	parms.holdTime    = 3.0f;
-	parms.fxTime      = 0.25f;
+	// No fades: the re-send lands while the previous copy is still fully
+	// held, so it swaps without a visible blink.
+	parms.fadeinTime  = 0.0f;
+	parms.fadeoutTime = 0.0f;
+	parms.holdTime    = CH_WAITING_ANNOUNCE_INTERVAL + 1.0f;
+	parms.fxTime      = 0.0f;
 
 	parms.channel = 2;
 
 	UTIL_HudMessageAll(parms, szText);
+}
+
+// Replaces the waiting notice with a blank that expires immediately.
+void CHalfLifeCrowbarHunt::ClearWaitingForPlayers() const
+{
+	hudtextparms_t parms;
+	memset(&parms, 0, sizeof(parms));
+
+	parms.x       = -1.0f;
+	parms.y       = 0.7f;
+	parms.channel = 2;
+
+	UTIL_HudMessageAll(parms, " ");
 }
 
 // Called from Think() the moment the server drops below CH_MIN_PLAYERS while a
@@ -545,6 +667,10 @@ void CHalfLifeCrowbarHunt::ResetForNextRound()
 	ClearPunishments();
 
 	SetRoundState(CHRoundState::WaitingForPlayers);
+
+	// Roles are gone, so are the labels.
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+		SendRoleHud(GetPlayerByIndex(i));
 
 	// Only the dead need picking up here - it gets them out of observer mode
 	// so they aren't stuck spectating if the server drops below the player
@@ -2001,6 +2127,7 @@ void CHalfLifeCrowbarHunt::BecomeSpectator(CBasePlayer* pPlayer)
 
 	m_flSpectatePromptExpires[index] = 0.0f;
 	m_playerRoles[index] = CHRole::Spectator;
+	SendRoleHud(pPlayer);
 
 	// Leaving a live round mid-way is the same loss to it as dying: the role is
 	// gone from CountAlivePlayersWithRole(), so CheckRoundWinConditions() settles
@@ -2568,6 +2695,10 @@ void CHalfLifeCrowbarHunt::ServiceServerNameSend(CBasePlayer* pPlayer)
 	if (m_flRoundTimeLimit != 0.0f)
 		SendRoundTimer(pPlayer->edict());
 
+	// And the role label - a blank for a joiner, but a reconnecting client
+	// may still be showing the label from its last visit.
+	SendRoleHud(pPlayer);
+
 	// And the loot count, which is what puts the loot readout on the HUD in
 	// place of the armour one - even a zero.
 	SendLootCount(pPlayer);
@@ -2763,24 +2894,26 @@ void CHalfLifeCrowbarHunt::DeathNotice(CBasePlayer* pVictim, entvars_t* pKiller,
 	// other than themselves. Only the attacker is named - naming the victim, or
 	// saying what killed them, would hand the room a free read on who just went
 	// quiet and what they were holding. That someone innocent died is the whole
-	// message.
-	//
-	// A dead Killer is not announced here: the round is already over by the
-	// time this runs, and EndRound() says so.
-	if (bKillerIsPlayer && pKiller != pVictim->pev && GetPlayerRole(pVictim) != CHRole::Killer)
+	// message - or, if the victim was the Killer, that the round has just been
+	// won and by whom. The round result itself follows a beat later, from
+	// AnnounceRoundOver().
+	if (bKillerIsPlayer && pKiller != pVictim->pev)
 	{
 		CBasePlayer* pAttacker = static_cast<CBasePlayer*>(CBaseEntity::Instance(pKiller));
 
 		if (pAttacker && GetPlayerRole(pAttacker) != CHRole::Killer)
 		{
+			const bool bKilledTheKiller = GetPlayerRole(pVictim) == CHRole::Killer;
+
 			// Sent as SayText rather than a plain print so the name is drawn in
 			// the shooter's own colour: saytext.cpp only colours a name when
 			// the line opens with \2, and it looks the colour up per client
 			// index. Under ch_anonymous that is the colour they are wearing,
 			// which is the only handle anyone in the room has on who this was.
 			char szText[128];
-			snprintf(szText, sizeof(szText), "\2%s killed an innocent survivor.\n",
-				STRING(pAttacker->pev->netname));
+			snprintf(szText, sizeof(szText), "\2%s killed %s.\n",
+				STRING(pAttacker->pev->netname),
+				bKilledTheKiller ? "the Killer" : "an innocent survivor");
 
 			MESSAGE_BEGIN(MSG_ALL, gmsgSayText, nullptr);
 			WRITE_BYTE(pAttacker->entindex());

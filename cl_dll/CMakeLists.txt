@@ -73,6 +73,7 @@ target_sources(client PRIVATE
 	com_weapons.cpp
 	ch_timer.cpp
 	ch_loot.cpp
+	ch_role.cpp
 	death.cpp
 	demo.cpp
 	entity.cpp

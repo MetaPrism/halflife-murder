@@ -432,6 +432,24 @@ private:
 	float m_fFade;
 };
 
+//
+//-----------------------------------------------------
+//
+
+// Crowbar Hunt role label, top-centre. See ch_role.cpp.
+class CHudCHRole : public CHudBase
+{
+public:
+	bool Init() override;
+	bool VidInit() override;
+	void InitHUDData() override;
+	bool Draw(float flTime) override;
+	bool MsgFunc_CHRole(const char* pszName, int iSize, void* pbuf);
+
+private:
+	int m_iRole; // last value the server sent; 0 draws nothing
+};
+
 class CHudTextMessage : public CHudBase
 {
 public:
@@ -620,6 +638,7 @@ public:
 	CHudStatusIcons m_StatusIcons;
 	CHudCHTimer m_CHTimer;
 	CHudCHLoot m_CHLoot;
+	CHudCHRole m_CHRole;
 
 	void Init();
 	void VidInit();

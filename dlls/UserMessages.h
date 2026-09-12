@@ -67,6 +67,10 @@ inline int gmsgCHTimer = 0;
 // arrival is also what swaps the HUD's armour readout for the loot one.
 inline int gmsgCHLoot = 0;
 
+// Crowbar Hunt: the local player's role for the top-of-HUD label. 0 takes the
+// label down; the rest are the CHRole values Killer/Hunter/Survivor as 1/2/3.
+inline int gmsgCHRole = 0;
+
 // Crowbar Hunt: the map was just reset for a new round. Carries no data; the
 // client strips its decals (blood, bullet holes, scorch marks) on receipt,
 // since those live purely client-side and would otherwise outlast the round.

@@ -468,6 +468,7 @@ void CHud::Init()
 	m_StatusIcons.Init();
 	m_CHTimer.Init();
 	m_CHLoot.Init();
+	m_CHRole.Init();
 	GetClientVoiceMgr()->Init(&g_VoiceStatusHelper, (vgui::Panel**)&gViewPort);
 
 	m_Menu.Init();
@@ -624,6 +625,7 @@ void CHud::VidInit()
 	m_StatusIcons.VidInit();
 	m_CHTimer.VidInit();
 	m_CHLoot.VidInit();
+	m_CHRole.VidInit();
 	GetClientVoiceMgr()->VidInit();
 }
 
