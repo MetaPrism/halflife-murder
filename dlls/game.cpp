@@ -490,6 +490,7 @@ cvar_t ch_killer_recover = {"ch_killer_recover", "0.25", FCVAR_SERVER};
 cvar_t ch_killer_min_weight = {"ch_killer_min_weight", "0.05", FCVAR_SERVER};
 
 cvar_t bot_zombie = {"bot_zombie", "1", FCVAR_SERVER};
+cvar_t bot_hunt = {"bot_hunt", "0", FCVAR_SERVER};
 
 static bool SV_InitServer()
 {
@@ -574,6 +575,7 @@ void GameDLLInit()
 	CVAR_REGISTER(&ch_killer_recover);
 	CVAR_REGISTER(&ch_killer_min_weight);
 	CVAR_REGISTER(&bot_zombie);
+	CVAR_REGISTER(&bot_hunt);
 
 	CVAR_REGISTER(&sv_allowbunnyhopping);
 
