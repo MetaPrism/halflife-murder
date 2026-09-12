@@ -678,8 +678,9 @@ void CHalfLifeCrowbarHunt::SendRoleHud(CBasePlayer* pPlayer) const
 // Persistent notice, on its own HUD channel so it never collides with the
 // round-result or role announcements. Think() re-sends it every
 // CH_WAITING_ANNOUNCE_INTERVAL; the engine replaces a channel's message in
-// place, and the hold outlasts the interval, so it reads as one steady
-// message that stays up until ClearWaitingForPlayers().
+// place, CHudMessage::MessageAdd restarts the timer on a re-sent channel, and
+// the hold outlasts the interval, so it reads as one steady message that stays
+// up until ClearWaitingForPlayers().
 void CHalfLifeCrowbarHunt::AnnounceWaitingForPlayers() const
 {
 	char szText[128];

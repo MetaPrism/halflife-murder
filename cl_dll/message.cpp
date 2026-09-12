@@ -464,6 +464,16 @@ void CHudMessage::MessageAdd(const char* pName, float time)
 			{
 				if (m_pMessages[j])
 				{
+					// A network channel re-sent while still on screen: the engine
+					// has already rewritten the slot in place, so restart the timer
+					// rather than letting the old hold expire underneath it - that
+					// drops the message for a frame before the next re-send.
+					if (tempMessage == m_pMessages[j])
+					{
+						m_startTime[j] = time;
+						return;
+					}
+
 					// is this message already in the list
 					if (0 == strcmp(tempMessage->pMessage, m_pMessages[j]->pMessage))
 					{
