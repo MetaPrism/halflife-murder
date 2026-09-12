@@ -2989,7 +2989,14 @@ void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer) const
 	pev->animtime  = gpGlobals->time;
 	pev->framerate = 0;
 
-	UTIL_SetSize(pev, pPlayer->pev->mins, pPlayer->pev->maxs);
+	// The player's hull is still the standing one, 72 tall, but the body is
+	// lying down: PlayerUse() aims at the box, so keep it where the body is - a
+	// slab on the floor, wide enough to cover a body that fell in any
+	// direction. Nothing collides with it (SOLID_NOT), so it only has to be
+	// where a cursor over the corpse would land.
+	const float flFloor = pPlayer->pev->mins.z;
+
+	UTIL_SetSize(pev, Vector(-32.0f, -32.0f, flFloor), Vector(32.0f, 32.0f, flFloor + 16.0f));
 	UTIL_SetOrigin(pev, pPlayer->pev->origin);
 }
 
