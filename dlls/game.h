@@ -125,6 +125,12 @@ extern cvar_t ch_killer_min_weight;
 // whenever they run into something.
 extern cvar_t bot_zombie;
 
+// Which AI a moving bot runs, once bot_zombie is 0. 0 is that wander; 1 is the
+// hunting bot in ch_bots.cpp, which traces its way past what is in front of it,
+// crouches under it or crouch-jumps over it, and attacks players it meets with
+// whatever its role was given.
+extern cvar_t bot_hunt;
+
 // Register Crowbar Hunt's server console commands ("ch_odds"). Called once
 // from GameDLLInit(), alongside the bot commands.
 void InitCrowbarHuntCommands();
