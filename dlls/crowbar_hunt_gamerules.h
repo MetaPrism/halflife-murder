@@ -424,6 +424,13 @@ private:
 	// Leave a visible body behind at the point a player was killed.
 	void LeaveCorpse(CBasePlayer* pPlayer) const;
 
+	// Keep a client told which corpse is under its crosshair, so it can label
+	// the body with the name and colour it died wearing. The name lives only
+	// on the server (it is never networked with the entity), so the lookup has
+	// to be done here; only changes are sent.
+	void ServiceCorpseLook(CBasePlayer* pPlayer);
+	CCrowbarHuntCorpse* FindCorpseInView(CBasePlayer* pPlayer) const;
+
 	void CheckRoundWinConditions();
 
 	CHRoundState m_roundState;
@@ -477,6 +484,12 @@ private:
 	// The proximity-falloff state last sent to each slot, same scheme as
 	// m_iSentSpectator: 0, 1, or -1 for "never sent".
 	int m_iSentProxVoice[MAX_PLAYERS + 1];
+
+	// The corpse each slot was last told it is looking at, null for none. A
+	// corpse's identity never changes, so "same entity" means "nothing to
+	// resend", and one that is deleted under us reads as null and clears the
+	// label on the next think. Same indexing as m_playerRoles.
+	EHANDLE m_hLookCorpse[MAX_PLAYERS + 1];
 
 	// gpGlobals->time each punished player's penalty runs out, or 0 for no
 	// penalty. Same indexing as m_playerRoles, and cleared with it: the penalty

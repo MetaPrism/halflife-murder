@@ -95,4 +95,9 @@ inline int gmsgCHProxVoice = 0;
 // message caps at 192 bytes and a full server's table does not fit in one.
 inline int gmsgCHAdmin = 0;
 
+// Crowbar Hunt: the corpse the player is looking at, for the label under the
+// crosshair - name colour (g_CHAnonColors index, or CH_ANON_NONE) then the
+// name the body was wearing when it died. An empty name takes the label down.
+inline int gmsgCHLook = 0;
+
 void LinkUserMessages();

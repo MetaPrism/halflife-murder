@@ -74,5 +74,6 @@ void LinkUserMessages()
 	gmsgSpectator = REG_USER_MSG("Spectator", 2); // player slot, 1 if observing
 	gmsgCHProxVoice = REG_USER_MSG("CHProxVoice", 3); // fade voices by distance: on/off, radius
 	gmsgCHAdmin = REG_USER_MSG("CHAdmin", -1);   // one Killer-odds table row, or the terminator
+	gmsgCHLook = REG_USER_MSG("CHLook", -1);     // corpse under the crosshair: name colour, name
 
 }

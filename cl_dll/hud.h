@@ -450,6 +450,22 @@ private:
 	int m_iRole; // last value the server sent; 0 draws nothing
 };
 
+// Crowbar Hunt corpse label: the name a body died wearing, drawn under the
+// crosshair while the server says one is in view. See ch_look.cpp.
+class CHudCHLook : public CHudBase
+{
+public:
+	bool Init() override;
+	bool VidInit() override;
+	void InitHUDData() override;
+	bool Draw(float flTime) override;
+	bool MsgFunc_CHLook(const char* pszName, int iSize, void* pbuf);
+
+private:
+	char m_szName[MAX_PLAYER_NAME_LENGTH]; // empty draws nothing
+	int m_iAnonColor;                      // g_CHAnonColors index, or -1 for the HUD colour
+};
+
 // Crowbar Hunt voice falloff by distance. Draws nothing. See ch_proxvoice.cpp.
 class CHudCHProxVoice : public CHudBase
 {
@@ -658,6 +674,7 @@ public:
 	CHudCHTimer m_CHTimer;
 	CHudCHLoot m_CHLoot;
 	CHudCHRole m_CHRole;
+	CHudCHLook m_CHLook;
 	CHudCHProxVoice m_CHProxVoice;
 
 	void Init();

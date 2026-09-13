@@ -1739,6 +1739,7 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_flSendServerName[index] = 0.0f;
 	m_iSentSpectator[index] = -1;
 	m_iSentProxVoice[index] = -1;
+	m_hLookCorpse[index] = nullptr;
 	m_flSpectatePromptExpires[index] = 0.0f;
 	m_iLootCount[index] = 0;
 	m_iLootRewards[index] = 0;
@@ -1854,6 +1855,7 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 	// After the above, so a player parked this frame is reported this frame.
 	ServiceSpectatorState(pPlayer);
 	ServiceProxVoiceState(pPlayer);
+	ServiceCorpseLook(pPlayer);
 
 	if (!pPlayer->IsAlive() || m_roundState != CHRoundState::InProgress)
 		return;
@@ -3199,6 +3201,87 @@ void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer) const
 
 	UTIL_SetSize(pev, Vector(-32.0f, -32.0f, flFloor), Vector(32.0f, 32.0f, flFloor + 16.0f));
 	UTIL_SetOrigin(pev, pPlayer->pev->origin);
+}
+
+// The body a player is looking at, or null. A corpse is SOLID_NOT, so a
+// traceline passes straight through it; this aims the same way PlayerUse()
+// does instead - at the nearest corner of the box - but with a tighter cone,
+// and reaches further than +use so a body can be read from across a room.
+// The one trace here is against the world only, to keep names from leaking
+// through a wall.
+CCrowbarHuntCorpse* CHalfLifeCrowbarHunt::FindCorpseInView(CBasePlayer* pPlayer) const
+{
+	constexpr float CH_LOOK_REACH = 192.0f; // world units from the eyes
+	constexpr float CH_LOOK_COS = 0.92f;    // about 23 degrees off centre
+
+	const Vector vecEyes = pPlayer->pev->origin + pPlayer->pev->view_ofs;
+
+	UTIL_MakeVectors(pPlayer->pev->v_angle);
+
+	CBaseEntity*        pEntity = nullptr;
+	CCrowbarHuntCorpse* pBest = nullptr;
+	float               flBestDot = CH_LOOK_COS;
+
+	while ((pEntity = UTIL_FindEntityByClassname(pEntity, "ch_corpse")) != nullptr)
+	{
+		const Vector vecTarget = VecBModelOrigin(pEntity->pev) + UTIL_ClampVectorToBox(vecEyes - VecBModelOrigin(pEntity->pev), pEntity->pev->size * 0.5f);
+		Vector       vecLOS = vecTarget - vecEyes;
+		const float  flDist = vecLOS.Length();
+
+		if (flDist > CH_LOOK_REACH)
+			continue;
+
+		if (flDist > 1.0f)
+			vecLOS = vecLOS / flDist;
+		else
+			vecLOS = gpGlobals->v_forward; // standing on it: count as looking at it
+
+		const float flDot = DotProduct(vecLOS, gpGlobals->v_forward);
+
+		if (flDot <= flBestDot)
+			continue;
+
+		TraceResult tr;
+		UTIL_TraceLine(vecEyes, vecTarget, ignore_monsters, pPlayer->edict(), &tr);
+
+		if (tr.flFraction < 1.0f)
+			continue;
+
+		pBest = static_cast<CCrowbarHuntCorpse*>(pEntity);
+		flBestDot = flDot;
+	}
+
+	return pBest;
+}
+
+void CHalfLifeCrowbarHunt::ServiceCorpseLook(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return;
+
+	CCrowbarHuntCorpse* pCorpse = FindCorpseInView(pPlayer);
+
+	if (static_cast<CBaseEntity*>(m_hLookCorpse[index]) == pCorpse)
+		return;
+
+	m_hLookCorpse[index] = pCorpse;
+
+	MESSAGE_BEGIN(MSG_ONE, gmsgCHLook, nullptr, pPlayer->edict());
+
+	if (pCorpse)
+	{
+		WRITE_BYTE(pCorpse->m_iAnonColor >= 0 ? pCorpse->m_iAnonColor : CH_ANON_NONE);
+		WRITE_STRING(pCorpse->m_szName);
+	}
+	else
+	{
+		WRITE_BYTE(CH_ANON_NONE);
+		WRITE_STRING("");
+	}
+
+	MESSAGE_END();
 }
 
 // ---------------------------------------------------------------------------
