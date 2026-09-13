@@ -45,7 +45,7 @@ enum class CHRole
 #define CH_ROUND_OVER_DELAY 2.0f
 
 // Played to everyone as the result appears. Placeholder until one is chosen.
-#define CH_ROUND_OVER_SOUND "buttons/elevbell1.wav"
+#define CH_ROUND_OVER_SOUND "plats/elevbell1.wav"
 
 // How long, in seconds, the "really spectate?" prompt stays up and its answer
 // is accepted.
