@@ -300,6 +300,12 @@ void CCrowbarProjectile::FlyTouch(CBaseEntity* pOther)
 		// they have already disconnected.
 		pOther->TakeDamage(pev, pThrower ? pThrower->pev : pev, gSkillData.plrDmgCrowbar, DMG_CLUB);
 
+		// A thrown bar is the one attack whose victim gets a voice: DeathSound()
+		// is silenced along with the other giveaway sounds, so play the stock
+		// pain grunt here instead. Nothing else calls CBasePlayer::Pain().
+		if (pOther->IsPlayer() && !pOther->IsAlive())
+			static_cast<CBasePlayer*>(pOther)->Pain();
+
 		if (pOther->IsPlayer() || (pOther->Classify() != CLASS_NONE && pOther->Classify() != CLASS_MACHINE))
 		{
 			if (g_pGameRules->PlayGiveawaySounds())

@@ -618,13 +618,15 @@ void CHalfLifeCrowbarHunt::AnnounceRoundOver()
 
 	UTIL_HudMessageAll(parms, m_szRoundOverMessage);
 
-	// Full volume for everyone, wherever they are; CHAN_STATIC keeps it clear
-	// of whatever the player's own weapon or voice channels are doing.
+	// Full volume for everyone, wherever they are. Not EMIT_SOUND per player:
+	// an ATTN_NONE emit reaches every client, so emitting once from each
+	// player's entity stacks one copy per client (bots included) in
+	// everyone's ears. "spk" is a plain 2D playback on that one client only.
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
 		CBasePlayer* pPlayer = GetPlayerByIndex(i);
-		if (pPlayer)
-			EMIT_SOUND(ENT(pPlayer->pev), CHAN_STATIC, CH_ROUND_OVER_SOUND, 1.0f, ATTN_NONE);
+		if (pPlayer && !(pPlayer->pev->flags & FL_FAKECLIENT))
+			CLIENT_COMMAND(pPlayer->edict(), "spk " CH_ROUND_OVER_SOUND "\n");
 	}
 }
 
@@ -3357,6 +3359,14 @@ void CHalfLifeCrowbarHunt::ServiceCorpseLook(CBasePlayer* pPlayer)
 
 	m_hLookCorpse[index] = pCorpse;
 	m_bLookLabelUp[index] = pCorpse != nullptr;
+
+	// The status bar only re-traces for a player name every 0.2s, while this
+	// runs every frame - so left alone, a swing from a body to a player (or
+	// back) would put this label up or down at once and the other one up to
+	// 200ms later, with both showing or neither in between. Making the status
+	// bar re-trace this same frame (it runs in PostThink, after us, and reads
+	// GetIDTargetRange() from the state just set) keeps the two in step.
+	pPlayer->m_flNextSBarUpdateTime = 0.0f;
 
 	MESSAGE_BEGIN(MSG_ONE, gmsgCHLook, nullptr, pPlayer->edict());
 
