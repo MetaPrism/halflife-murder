@@ -1084,7 +1084,7 @@ void CHalfLifeCrowbarHunt::AwardLootRevolver(CBasePlayer* pPlayer)
 		pPlayer->GiveNamedItem("weapon_357");
 		m_bGrantingKillerGun = false;
 
-		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Your loot bought a revolver.\n");
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You got a revolver.\n");
 		return;
 	}
 
@@ -1093,7 +1093,7 @@ void CHalfLifeCrowbarHunt::AwardLootRevolver(CBasePlayer* pPlayer)
 	if (!pPlayer->HasNamedPlayerItem("weapon_357") && !IsPunished(pPlayer))
 	{
 		pPlayer->GiveNamedItem("weapon_357");
-		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Your loot bought a revolver.\n");
+		ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You got a revolver.\n");
 		return;
 	}
 
@@ -1107,7 +1107,7 @@ void CHalfLifeCrowbarHunt::AwardLootRevolver(CBasePlayer* pPlayer)
 	pGun->pev->spawnflags |= SF_NORESPAWN;
 	CH_SetWeaponGlow(pGun, CHWeaponGlow::Revolver);
 
-	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "Your loot bought a revolver - it's at your feet.\n");
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "You dropped a revolver.\n");
 }
 
 void CHalfLifeCrowbarHunt::SendLootCount(CBasePlayer* pPlayer) const

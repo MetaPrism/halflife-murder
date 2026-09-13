@@ -17,6 +17,7 @@ public:
 	// One connected player's line in the table, as the server sent it.
 	struct Row
 	{
+		int iSlot;                                // player index, for the anon colour lookup
 		char szName[MAX_PLAYER_NAME_LENGTH];      // the name they joined with
 		char szShownName[MAX_PLAYER_NAME_LENGTH]; // the name the room sees right now
 		int iRole;                                // CHRole as sent: 0 unassigned, 1 spectator, 2 killer, 3 hunter, 4 survivor

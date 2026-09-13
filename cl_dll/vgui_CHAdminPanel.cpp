@@ -53,6 +53,9 @@ static const struct
 
 static const char* const g_pszAdminRoleNames[] = {"-", "Spectator", "Killer", "Hunter", "Survivor"};
 
+// death.cpp: the colour a slot is wearing this round, 0x00RRGGBB, or -1 for none.
+extern int GetCHAnonPackedColor(int clientIndex);
+
 // The Refresh button: ask the server for the table again right now. The
 // reply lands in the panel through the CHAdmin message like any other.
 class CCHAdminRefreshHandler : public ActionSignal
@@ -258,9 +261,18 @@ void CCHAdminPanel::Refresh()
 		m_pCells[i][0]->setText("%s", row.szName);
 
 		// Only worth a column when it differs: outside anonymous mode every
-		// line would just repeat itself.
+		// line would just repeat itself. Drawn in the colour the round dealt
+		// them - the same table the scoreboard and chat use, so "Alpha" here
+		// looks like Alpha out there.
 		if (strcmp(row.szName, row.szShownName) != 0)
+		{
 			m_pCells[i][1]->setText("%s", row.szShownName);
+
+			const int packed = GetCHAnonPackedColor(row.iSlot);
+
+			if (packed >= 0)
+				m_pCells[i][1]->setFgColor((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF, 0);
+		}
 		else
 			m_pCells[i][1]->setText("");
 

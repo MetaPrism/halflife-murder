@@ -2121,6 +2121,7 @@ bool TeamFortressViewport::MsgFunc_CHAdmin(const char* pszName, int iSize, void*
 	}
 
 	CCHAdminPanel::Row row;
+	row.iSlot = slot;
 	const int flags = READ_BYTE();
 	row.flWeight = READ_SHORT() / 1000.0f;
 	row.flChance = READ_SHORT() / 10.0f;
