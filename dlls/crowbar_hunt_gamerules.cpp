@@ -8,6 +8,7 @@
 #include "game.h"
 #include "hltv.h"
 #include "shake.h"
+#include "effects.h"
 #include "crowbar_hunt_gamerules.h"
 #include "crowbar_hunt_shared.h"
 #include "UserMessages.h"
@@ -42,6 +43,43 @@ constexpr const char* CH_NORMAL_JUMP_PERCENT = "100";
 // penalty ends from reading as a graphical glitch.
 constexpr float CH_PUNISH_TINT_FADE_IN = 0.4f;
 constexpr float CH_PUNISH_TINT_FADE_OUT = 1.5f;
+
+// The Killer's evil presence, once ch_killerfogtime runs out. The tint is
+// deliberately faint - a reminder on the Killer's own screen, not a handicap -
+// and comes and goes slowly so it never reads as a hit flash.
+constexpr int   CH_KILLER_FOG_TINT     = 40;
+constexpr float CH_KILLER_FOG_FADE_IN  = 3.0f;
+constexpr float CH_KILLER_FOG_FADE_OUT = 1.5f;
+
+// The notice is re-sent on this cadence for as long as the presence shows,
+// same scheme as the waiting notice; the hold outlasts the interval.
+constexpr float CH_KILLER_FOG_NOTICE_INTERVAL = 4.0f;
+
+// The smoke: the stock TE_SMOKE puff sprite, but a server-side entity rather
+// than a temp entity so it can be coloured black, live for seconds instead of
+// frames, and be swept up by the map reset. A puff is dropped every
+// CH_KILLER_FOG_PUFF_SPACING units the Killer moves, plus one every
+// CH_KILLER_FOG_IDLE_INTERVAL seconds while they stand still. Each starts at
+// CH_KILLER_FOG_PUFF_ALPHA and fades to nothing over CH_KILLER_FOG_PUFF_LIFE
+// seconds, growing from CH_KILLER_FOG_PUFF_SCALE as it goes, so a Killer at
+// full sprint trails on the order of fifty puffs at once.
+constexpr const char* CH_KILLER_FOG_SPRITE        = "sprites/ballsmoke.spr";
+constexpr float       CH_KILLER_FOG_PUFF_SPACING  = 40.0f;
+constexpr float       CH_KILLER_FOG_IDLE_INTERVAL = 2.0f;
+constexpr float       CH_KILLER_FOG_PUFF_LIFE     = 18.0f;
+constexpr float       CH_KILLER_FOG_PUFF_ALPHA    = 190.0f;
+constexpr float       CH_KILLER_FOG_PUFF_SCALE    = 0.45f;
+constexpr float       CH_KILLER_FOG_PUFF_GROWTH   = 0.03f; // scale per second
+constexpr float       CH_KILLER_FOG_PUFF_FPS      = 7.0f;  // sprite animation, looped
+
+// Each puff is scattered a little around its spawn point, so a Killer walking
+// a straight line (or standing still) does not leave a row of identical puffs
+// on a rail. Every puff then rises to the same ceiling - CH_KILLER_FOG_PUFF_TOP
+// above the Killer's feet - by the time it is gone, whatever its offset, so
+// the trail fades out at one height rather than in a ragged band.
+constexpr float CH_KILLER_FOG_PUFF_JITTER_XY = 20.0f; // +/- units sideways
+constexpr float CH_KILLER_FOG_PUFF_JITTER_Z  = 10.0f; // +/- units vertically
+constexpr float CH_KILLER_FOG_PUFF_TOP       = 150.0f;
 
 // How long after a player spawns to send them the scoreboard title. Long enough
 // that a player spawning during the initial level load has a client DLL with its
@@ -106,6 +144,7 @@ const char* const g_szLitterClassnames[] = {
 	"gib",
 	"ch_corpse",
 	"ch_loot",
+	"ch_evilsmoke",
 	"weaponbox",
 	"grenade",
 	"crowbar_thrown",
@@ -200,6 +239,80 @@ void CCrowbarHuntCorpse::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_
 }
 
 LINK_ENTITY_TO_CLASS(ch_corpse, CCrowbarHuntCorpse);
+
+// ---------------------------------------------------------------------------
+// ch_evilsmoke - one puff of the Killer's trail. A CSprite whose think both
+// plays the sprite's frames and does what CSprite::ExpandThink() would have:
+// the stock threads are one or the other, and a puff that sat on frame 0 for
+// eighteen seconds read as a static blob rather than smoke. Never saved - it
+// is round litter, and the map reset sweeps it by classname.
+// ---------------------------------------------------------------------------
+class CCrowbarHuntSmoke : public CSprite
+{
+public:
+	static CCrowbarHuntSmoke* Create(const Vector& origin);
+
+	int ObjectCaps() override { return CSprite::ObjectCaps() | FCAP_DONT_SAVE; }
+
+	// scaleSpeed and fadeSpeed as for CSprite::Expand(); framerate loops.
+	void Start(float scaleSpeed, float fadeSpeed, float framerate);
+	void EXPORT PuffThink();
+
+private:
+	float m_flLastThink;
+};
+
+LINK_ENTITY_TO_CLASS(ch_evilsmoke, CCrowbarHuntSmoke);
+
+CCrowbarHuntSmoke* CCrowbarHuntSmoke::Create(const Vector& origin)
+{
+	CCrowbarHuntSmoke* pPuff = GetClassPtr(static_cast<CCrowbarHuntSmoke*>(nullptr));
+
+	// As CSprite::SpriteCreate(), but keeping our own classname.
+	pPuff->SpriteInit(CH_KILLER_FOG_SPRITE, origin);
+	pPuff->pev->classname = MAKE_STRING("ch_evilsmoke");
+	pPuff->pev->solid     = SOLID_NOT;
+	pPuff->pev->movetype  = MOVETYPE_NOCLIP;
+
+	return pPuff;
+}
+
+void CCrowbarHuntSmoke::Start(float scaleSpeed, float fadeSpeed, float framerate)
+{
+	pev->speed     = scaleSpeed;
+	pev->health    = fadeSpeed;
+	pev->framerate = framerate;
+
+	// Start each puff part-way through the loop, so puffs spawned in step
+	// with each other do not all roil in unison.
+	pev->frame = RANDOM_FLOAT(0.0f, Frames());
+
+	m_flLastThink = gpGlobals->time;
+	SetThink(&CCrowbarHuntSmoke::PuffThink);
+	pev->nextthink = gpGlobals->time;
+}
+
+void CCrowbarHuntSmoke::PuffThink()
+{
+	const float flDelta = gpGlobals->time - m_flLastThink;
+	m_flLastThink       = gpGlobals->time;
+
+	// Loops: SF_SPRITE_ONCE is not set, so Animate() wraps at the last frame.
+	Animate(pev->framerate * flDelta);
+
+	pev->scale += pev->speed * flDelta;
+	pev->renderamt -= pev->health * flDelta;
+
+	if (pev->renderamt <= 0.0f)
+	{
+		pev->renderamt = 0.0f;
+		UTIL_Remove(this);
+		return;
+	}
+
+	// Finer than CSprite's 0.1: at 0.1 a 7 fps loop visibly steps.
+	pev->nextthink = gpGlobals->time + 0.05f;
+}
 
 // The instance InstallGameRules() built, for the server commands below. Only
 // ever compared against g_pGameRules, never dereferenced blind: a mode change
@@ -371,6 +484,14 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	m_szRoundOverMessage[0]   = '\0';
 	PRECACHE_SOUND(CH_ROUND_OVER_SOUND);
 
+	m_flKillerFogTime       = 0.0f;
+	m_bKillerFogShowing     = false;
+	m_iKillerFogSlot        = 0;
+	m_flNextKillerFogNotice = 0.0f;
+	m_flLastKillerFogPuff   = 0.0f;
+	m_vecLastKillerFogPuff  = g_vecZero;
+	PRECACHE_MODEL(CH_KILLER_FOG_SPRITE);
+
 	m_bAnonActive = false;
 
 	for (int i = 0; i <= MAX_PLAYERS; i++)
@@ -442,6 +563,9 @@ void CHalfLifeCrowbarHunt::Think()
 		if (m_roundState == CHRoundState::InProgress)
 			ServiceLootSpawns();
 
+		if (m_roundState == CHRoundState::InProgress)
+			ServiceKillerFog();
+
 		// The Killer ran out the clock: everyone still standing has survived.
 		// After the win check, so a kill that lands on the final frame still
 		// counts the way it would have a moment earlier.
@@ -495,6 +619,10 @@ void CHalfLifeCrowbarHunt::SetRoundState(CHRoundState state)
 		SendRoundTimer(nullptr);
 	}
 
+	// Same for the Killer's presence: it belongs to the live round only.
+	if (state != CHRoundState::InProgress)
+		ClearKillerFog();
+
 	// Entering the waiting state should say so immediately, not up to a full
 	// interval later.
 	if (state == CHRoundState::WaitingForPlayers)
@@ -528,6 +656,9 @@ void CHalfLifeCrowbarHunt::StartRound()
 
 	// The first piece of loot arrives one interval in, not at the whistle.
 	m_flNextLootSpawn = gpGlobals->time + ch_loot_interval.value;
+
+	// The Killer's clock starts with the round.
+	ResetKillerFogClock();
 
 	// Hand out weapons the instant the round goes live rather than at spawn
 	// time, so nobody is armed during the countdown.
@@ -2084,6 +2215,197 @@ void CHalfLifeCrowbarHunt::ClearPunishments()
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Evil presence
+//
+// A Killer who sits on their hands is the mode's dullest failure case: the
+// Survivors have nothing to react to and the round runs down the clock. After
+// ch_killerfogtime seconds without a kill the Killer starts to show - a faint
+// darkening of their own view, a notice saying why, and black smoke trailing
+// behind them for everyone to see - and only a kill hides them again.
+// ---------------------------------------------------------------------------
+CBasePlayer* CHalfLifeCrowbarHunt::GetKiller() const
+{
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		if (m_playerRoles[i] != CHRole::Killer)
+			continue;
+
+		if (CBasePlayer* pPlayer = GetPlayerByIndex(i); pPlayer != nullptr)
+			return pPlayer;
+	}
+
+	return nullptr;
+}
+
+void CHalfLifeCrowbarHunt::ResetKillerFogClock()
+{
+	// Hiding takes the current presence down but leaves the clock stopped,
+	// so it has to be wound again afterwards.
+	ClearKillerFog();
+
+	if (ch_killerfogtime.value > 0.0f)
+		m_flKillerFogTime = gpGlobals->time + ch_killerfogtime.value;
+}
+
+void CHalfLifeCrowbarHunt::ClearKillerFog()
+{
+	m_flKillerFogTime = 0.0f;
+
+	if (!m_bKillerFogShowing)
+		return;
+
+	m_bKillerFogShowing = false;
+
+	// Whoever it was put on, whether or not they still read as the Killer -
+	// a round reset wipes roles before anything else gets a look in.
+	if (CBasePlayer* pPlayer = GetPlayerByIndex(m_iKillerFogSlot); pPlayer != nullptr)
+	{
+		SetKillerFogTint(pPlayer, false);
+		SendKillerFogNotice(pPlayer, false);
+	}
+
+	m_iKillerFogSlot = 0;
+}
+
+void CHalfLifeCrowbarHunt::ServiceKillerFog()
+{
+	if (m_flKillerFogTime == 0.0f)
+		return;
+
+	CBasePlayer* pKiller = GetKiller();
+
+	// A Killer who is gone or dead has no presence to show; the round is on
+	// its way out anyway, and SetRoundState() will stop the clock.
+	if (!pKiller || !pKiller->IsAlive())
+	{
+		if (m_bKillerFogShowing)
+			ClearKillerFog();
+		return;
+	}
+
+	if (!m_bKillerFogShowing)
+	{
+		if (gpGlobals->time >= m_flKillerFogTime)
+			StartKillerFog(pKiller);
+		return;
+	}
+
+	if (gpGlobals->time >= m_flNextKillerFogNotice)
+	{
+		SendKillerFogNotice(pKiller, true);
+		m_flNextKillerFogNotice = gpGlobals->time + CH_KILLER_FOG_NOTICE_INTERVAL;
+	}
+
+	const float flMoved = (pKiller->pev->origin - m_vecLastKillerFogPuff).Length();
+
+	if (flMoved >= CH_KILLER_FOG_PUFF_SPACING ||
+		gpGlobals->time - m_flLastKillerFogPuff >= CH_KILLER_FOG_IDLE_INTERVAL)
+	{
+		SpawnKillerFogPuff(pKiller);
+	}
+}
+
+void CHalfLifeCrowbarHunt::StartKillerFog(CBasePlayer* pKiller)
+{
+	m_bKillerFogShowing = true;
+	m_iKillerFogSlot    = ENTINDEX(pKiller->edict());
+
+	SetKillerFogTint(pKiller, true);
+
+	// Notice and first puff land on the next service tick.
+	m_flNextKillerFogNotice = gpGlobals->time;
+	m_flLastKillerFogPuff   = 0.0f;
+	m_vecLastKillerFogPuff  = pKiller->pev->origin;
+}
+
+// One puff of smoke at the Killer's feet: the TE_SMOKE sprite as a proper
+// entity, drawn in kRenderTransColor so its index-alpha edges stay soft but
+// the colour is ours - near black - and left to its own think to animate,
+// grow, fade, and remove itself. It drifts upward as it goes, at whatever
+// speed lands it at CH_KILLER_FOG_PUFF_TOP as it dies.
+void CHalfLifeCrowbarHunt::SpawnKillerFogPuff(CBasePlayer* pKiller)
+{
+	m_flLastKillerFogPuff  = gpGlobals->time;
+	m_vecLastKillerFogPuff = pKiller->pev->origin;
+
+	// Low, and a little behind, so it reads as left in the Killer's wake
+	// rather than worn on them - and so it does not sit in their own face.
+	Vector vecOrigin = pKiller->pev->origin;
+	vecOrigin.z -= 16.0f;
+
+	if (pKiller->pev->velocity.Length2D() > 1.0f)
+		vecOrigin = vecOrigin - pKiller->pev->velocity.Normalize() * 20.0f;
+
+	// The ceiling is fixed before the scatter, so the scatter only changes
+	// where a puff starts, not where it ends.
+	const float flTopZ = vecOrigin.z + CH_KILLER_FOG_PUFF_TOP;
+
+	vecOrigin.x += RANDOM_FLOAT(-CH_KILLER_FOG_PUFF_JITTER_XY, CH_KILLER_FOG_PUFF_JITTER_XY);
+	vecOrigin.y += RANDOM_FLOAT(-CH_KILLER_FOG_PUFF_JITTER_XY, CH_KILLER_FOG_PUFF_JITTER_XY);
+	vecOrigin.z += RANDOM_FLOAT(-CH_KILLER_FOG_PUFF_JITTER_Z, CH_KILLER_FOG_PUFF_JITTER_Z);
+
+	CCrowbarHuntSmoke* pPuff = CCrowbarHuntSmoke::Create(vecOrigin);
+
+	if (!pPuff)
+		return;
+
+	pPuff->SetTransparency(kRenderTransColor, 12, 12, 12, static_cast<int>(CH_KILLER_FOG_PUFF_ALPHA), kRenderFxNone);
+	pPuff->SetScale(CH_KILLER_FOG_PUFF_SCALE);
+	pPuff->pev->velocity = Vector(0.0f, 0.0f, (flTopZ - vecOrigin.z) / CH_KILLER_FOG_PUFF_LIFE);
+	pPuff->Start(CH_KILLER_FOG_PUFF_GROWTH, CH_KILLER_FOG_PUFF_ALPHA / CH_KILLER_FOG_PUFF_LIFE, CH_KILLER_FOG_PUFF_FPS);
+}
+
+// Same mechanism as the punishment tint - FFADE_STAYOUT, held until told
+// otherwise - at a fraction of the alpha.
+void CHalfLifeCrowbarHunt::SetKillerFogTint(CBasePlayer* pPlayer, bool bOn)
+{
+	UTIL_ScreenFade(pPlayer, Vector(0, 0, 0),
+		bOn ? CH_KILLER_FOG_FADE_IN : CH_KILLER_FOG_FADE_OUT, 0.0f,
+		CH_KILLER_FOG_TINT, bOn ? (FFADE_OUT | FFADE_STAYOUT) : FFADE_IN);
+}
+
+// The notice, or a blank that takes it down. Its own channel: the role
+// announcement (1) and round result (3) go to the same player and must not
+// be stomped, and the waiting notice (2) is cleared by the same blank trick,
+// which would blank this one with it.
+void CHalfLifeCrowbarHunt::SendKillerFogNotice(CBasePlayer* pPlayer, bool bOn)
+{
+	hudtextparms_t parms;
+	memset(&parms, 0, sizeof(parms));
+
+	parms.x      = -1.0f;
+	parms.y      = 0.78f;
+	parms.effect = 0; // plain, so the re-send does not replay an effect
+
+	parms.r1 = 170;
+	parms.g1 = 40;
+	parms.b1 = 40;
+	parms.a1 = 255;
+
+	parms.r2 = 255;
+	parms.g2 = 255;
+	parms.b2 = 255;
+	parms.a2 = 255;
+
+	parms.channel = 4;
+
+	if (!bOn)
+	{
+		UTIL_HudMessage(pPlayer, parms, " ");
+		return;
+	}
+
+	// Re-sent while the previous copy is still held, so no fades - see
+	// AnnounceWaitingForPlayers().
+	parms.fadeinTime  = 0.0f;
+	parms.fadeoutTime = 0.0f;
+	parms.holdTime    = CH_KILLER_FOG_NOTICE_INTERVAL + 1.0f;
+	parms.fxTime      = 0.0f;
+
+	UTIL_HudMessage(pPlayer, parms, "Your evil presence is showing.\nKill someone to hide.");
+}
+
 // kRenderFxGlowShell is drawn by the studio renderer as a second pass over the
 // model with chrome forced on (see CStudioModelRenderer::StudioRenderModel), so
 // it only works on studio models - which both of these pickups are - and it is
@@ -3503,7 +3825,14 @@ void CHalfLifeCrowbarHunt::PlayerKilled(CBasePlayer* pVictim, entvars_t* pKiller
 		CBaseEntity* pKillerEntity = CBaseEntity::Instance(pKiller);
 
 		if (pKillerEntity && pKillerEntity->IsPlayer())
+		{
 			ClearDisguise(static_cast<CBasePlayer*>(pKillerEntity), true);
+
+			// And, for the Killer, buys them a fresh ch_killerfogtime of
+			// hiding their presence.
+			if (GetPlayerRole(static_cast<CBasePlayer*>(pKillerEntity)) == CHRole::Killer)
+				ResetKillerFogClock();
+		}
 	}
 
 	// The victim's health is already <= 0 here (CBasePlayer::Killed() calls us

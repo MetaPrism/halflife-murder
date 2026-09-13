@@ -79,6 +79,12 @@ extern cvar_t ch_punish_tint;
 // wins outright.
 extern cvar_t ch_round_time;
 
+// Seconds into a live round before the Killer's "evil presence" starts to
+// show: a slight dark tint over their own view, a notice telling them so, and
+// a trail of black smoke behind them that everyone can see. A kill resets the
+// clock and hides it again. 0 turns the mechanic off.
+extern cvar_t ch_killerfogtime;
+
 // Loot: how many seconds apart pieces appear during a live round (0 turns
 // loot off), and how many may lie uncollected at once before spawning pauses.
 // Where they appear is the map's business - see crowbar_hunt_loot.h.

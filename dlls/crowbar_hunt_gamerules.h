@@ -284,6 +284,31 @@ private:
 	// otherwise, so every path that ends a penalty has to turn it off.
 	static void SetPunishTint(CBasePlayer* pPlayer, bool bOn);
 
+	// --- evil presence ---
+	// A Killer who goes ch_killerfogtime seconds without a kill starts to
+	// show: their own view darkens slightly, a notice tells them why, and a
+	// trail of black smoke follows them until they kill again.
+
+	// The live round's Killer, or null if they are gone or the round isn't on.
+	CBasePlayer* GetKiller() const;
+
+	// Per-frame, from Think() while InProgress: start the presence when the
+	// clock runs out, and keep the notice and the smoke going while it shows.
+	void ServiceKillerFog();
+
+	// Wind the clock back to a full ch_killerfogtime from now, hiding the
+	// presence if it was showing. Both a round start and a kill do this.
+	void ResetKillerFogClock();
+
+	// Take the presence off the Killer and stop the clock. Every path out of
+	// InProgress ends up here - the tint would otherwise outlive the round.
+	void ClearKillerFog();
+
+	void        StartKillerFog(CBasePlayer* pKiller);
+	void        SpawnKillerFogPuff(CBasePlayer* pKiller);
+	static void SetKillerFogTint(CBasePlayer* pPlayer, bool bOn);
+	static void SendKillerFogNotice(CBasePlayer* pPlayer, bool bOn);
+
 	// --- loot ---
 	// Once per map, after its entities have spawned: if the author placed
 	// ch_loot_spawn markers, they replace whatever the loot file gave us.
@@ -472,6 +497,24 @@ private:
 	// Push the round clock to one client, or to everyone when pTarget is null:
 	// the seconds left, or 0 to take it off the HUD.
 	void SendRoundTimer(edict_t* pTarget) const;
+
+	// gpGlobals->time the Killer's presence starts showing, or 0 while the
+	// clock isn't running - outside InProgress, or with ch_killerfogtime 0.
+	float m_flKillerFogTime;
+
+	// Whether it is showing right now, and who it was put on: the tint and
+	// notice are per-client state that only ClearKillerFog() takes back off,
+	// so the slot is remembered rather than looked up again.
+	bool m_bKillerFogShowing;
+	int  m_iKillerFogSlot;
+
+	// Smoke and notice pacing while showing. The notice is re-sent the way
+	// the waiting notice is, so it reads as one message that stays up; the
+	// puffs follow distance moved, with a slower idle drip so a Killer who
+	// stands still still leaks a little.
+	float  m_flNextKillerFogNotice;
+	float  m_flLastKillerFogPuff;
+	Vector m_vecLastKillerFogPuff;
 	void SendRoleHud(CBasePlayer* pPlayer) const;
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
