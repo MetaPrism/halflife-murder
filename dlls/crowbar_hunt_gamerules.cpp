@@ -1028,8 +1028,8 @@ void CHalfLifeCrowbarHunt::PrintLootTable()
 		const CHLootSpawn& spawn = m_lootSpawns[i];
 		const bool occupied = static_cast<CBaseEntity*>(m_lootSpawns[i].hLoot) != nullptr;
 
-		ALERT(at_console, "  %3d  %8.1f %8.1f %8.1f  %s%s\n", i + 1,
-			spawn.vecOrigin.x, spawn.vecOrigin.y, spawn.vecOrigin.z,
+		ALERT(at_console, "  %3d  %8.1f %8.1f %8.1f  yaw %5.1f  %s%s\n", i + 1,
+			spawn.vecOrigin.x, spawn.vecOrigin.y, spawn.vecOrigin.z, spawn.flYaw,
 			STRING(spawn.iszModel), occupied ? "  [loot present]" : "");
 	}
 }
@@ -1670,7 +1670,7 @@ bool CHalfLifeCrowbarHunt::TryDisguise(CBasePlayer* pPlayer, CCrowbarHuntCorpse*
 	ApplyIdentity(pPlayer);
 	SendAnonColors(nullptr);
 
-	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, UTIL_VarArgs("You are now %s. Your next kill will give you away.\n", m_szDisguiseName[index]));
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, UTIL_VarArgs("You're now %s until your next kill.\n", m_szDisguiseName[index]));
 	return true;
 }
 

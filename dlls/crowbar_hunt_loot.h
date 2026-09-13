@@ -9,7 +9,9 @@ Where they can appear comes from one of two places, and only ever one:
 
   - maps/<mapname>_loot.txt, for maps nobody here can recompile. One "model
     <path>" line sets the model for every coordinate line after it, and every
-    other line is "x y z". "//" comments and blank lines are ignored.
+    other line is "x y z" with an optional fourth number, the yaw in degrees
+    the model faces (0 if left out). "//" comments and blank lines are
+    ignored.
 
 The gamerules own the table and decide when a spawn fires; this file knows how
 to fill the table and what a piece of loot is.
@@ -27,6 +29,7 @@ struct CHLootSpawn
 	// pointer it is given, so the model name has to outlive the load.
 	string_t iszModel;
 	Vector   vecOrigin;
+	float    flYaw; // degrees; a ch_loot_spawn takes it from its "angles" key
 	EHANDLE  hLoot; // the ch_loot sitting here right now, or null
 };
 

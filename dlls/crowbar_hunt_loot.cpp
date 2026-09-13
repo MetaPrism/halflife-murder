@@ -104,6 +104,7 @@ CBaseEntity* CH_CreateLoot(CHLootSpawn& spawn)
 	pLoot->pev->classname = MAKE_STRING("ch_loot");
 	pLoot->pev->model = spawn.iszModel;
 	pLoot->pev->origin = spawn.vecOrigin;
+	pLoot->pev->angles = Vector(0, spawn.flYaw, 0);
 
 	DispatchSpawn(pLoot->edict());
 
@@ -134,6 +135,7 @@ int CH_CollectLootSpawnEntities(CHLootSpawn* pTable, int maxCount)
 
 		spawn.iszModel = pEntity->pev->model; // Precache() filled in the default
 		spawn.vecOrigin = pEntity->pev->origin;
+		spawn.flYaw = pEntity->pev->angles.y;
 		spawn.hLoot = nullptr;
 	}
 
@@ -208,10 +210,11 @@ int CH_LoadLootFile(CHLootSpawn* pTable, int maxCount)
 		}
 
 		float x, y, z;
+		float yaw = 0;
 
-		if (sscanf(pszLine, "%f %f %f", &x, &y, &z) != 3)
+		if (sscanf(pszLine, "%f %f %f %f", &x, &y, &z, &yaw) < 3)
 		{
-			ALERT(at_console, "%s(%d): expected \"x y z\" or \"model <path>\", skipped\n", szPath, lineNo);
+			ALERT(at_console, "%s(%d): expected \"x y z [yaw]\" or \"model <path>\", skipped\n", szPath, lineNo);
 			continue;
 		}
 
@@ -231,6 +234,7 @@ int CH_LoadLootFile(CHLootSpawn* pTable, int maxCount)
 
 		spawn.iszModel = iszModel;
 		spawn.vecOrigin = Vector(x, y, z);
+		spawn.flYaw = yaw;
 		spawn.hLoot = nullptr;
 	}
 
