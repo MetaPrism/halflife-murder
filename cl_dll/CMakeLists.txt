@@ -105,6 +105,7 @@ target_sources(client PRIVATE
 	train.cpp
 	tri.cpp
 	util.cpp
+	vgui_CHAdminPanel.cpp
 	vgui_ClassMenu.cpp
 	vgui_CustomObjects.cpp
 	vgui_int.cpp
@@ -186,6 +187,7 @@ target_sources(client PRIVATE
 	particleman/CMiniMem.h
 	StudioModelRenderer.h
 	tri.h
+	vgui_CHAdminPanel.h
 	vgui_int.h
 	vgui_SchemeManager.h
 	vgui_ScorePanel.h

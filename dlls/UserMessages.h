@@ -87,4 +87,12 @@ inline int gmsgSpectator = 0;
 // Comfort only - the server's voice mask still decides who is heard at all.
 inline int gmsgCHProxVoice = 0;
 
+// Crowbar Hunt admin odds panel: one message per connected player - slot,
+// flags (bit 0: in the draw right now, bit 1: wearing a disguise), weight
+// x1000, chance x10 (both shorts), real name, the name they are currently
+// showing as, role (CHRole as a byte) - then a slot-0 terminator carrying
+// ch_killer_decay and ch_killer_recover x100. Split per row because a user
+// message caps at 192 bytes and a full server's table does not fit in one.
+inline int gmsgCHAdmin = 0;
+
 void LinkUserMessages();

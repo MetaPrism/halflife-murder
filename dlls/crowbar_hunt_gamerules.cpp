@@ -1748,6 +1748,8 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	// keeping a table keyed by auth id, which bots (all "BOT") would share.
 	m_flKillerWeight[index] = 1.0f;
 
+	m_bAdmin[index] = false;
+
 	m_anonColor[index] = -1;
 	m_szAnonName[index][0] = '\0';
 	m_szRealName[index][0] = '\0';
@@ -1767,7 +1769,16 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 bool CHalfLifeCrowbarHunt::ClientConnected(edict_t* pEntity, const char* pszName, const char* pszAddress, char szRejectReason[128])
 {
 	if (pEntity)
-		ResetPlayerSlot(ENTINDEX(pEntity));
+	{
+		const int index = ENTINDEX(pEntity);
+		ResetPlayerSlot(index);
+
+		// The engine hands the listen server's own client "loopback" for an
+		// address, and nothing coming in over the network can spoof that. The
+		// host is the one player who is an admin without a password.
+		if (index >= 1 && index <= MAX_PLAYERS && pszAddress && FStrEq(pszAddress, "loopback"))
+			m_bAdmin[index] = true;
+	}
 
 	return CHalfLifeMultiplay::ClientConnected(pEntity, pszName, pszAddress, szRejectReason);
 }
@@ -2470,6 +2481,34 @@ bool CHalfLifeCrowbarHunt::ClientCommand(CBasePlayer* pPlayer, const char* pcmd)
 		return true;
 	}
 
+	// "ch_adminpanel [password]" - the client wants the Killer odds table for
+	// its admin panel. The listen host is already an admin; anyone else has to
+	// bring ch_admin_pass the first time, after which the slot remembers. The
+	// panel re-sends this bare every couple of seconds while it is open.
+	if (FStrEq(pcmd, "ch_adminpanel"))
+	{
+		const int index = ENTINDEX(pPlayer->edict());
+
+		if (index < 1 || index > MAX_PLAYERS)
+			return true;
+
+		if (!m_bAdmin[index] && CMD_ARGC() >= 2 && ch_admin_pass.string[0] != '\0' &&
+			strcmp(CMD_ARGV(1), ch_admin_pass.string) == 0)
+			m_bAdmin[index] = true;
+
+		if (!IsAdmin(index))
+		{
+			// Not to the panel, which would then sit empty: this player has no
+			// panel to speak of. The console is where they typed it.
+			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE,
+				ch_admin_pass.string[0] != '\0' ? "ch_adminpanel: wrong password\n" : "ch_adminpanel: listen server host only (set ch_admin_pass to allow others)\n");
+			return true;
+		}
+
+		SendKillerOdds(pPlayer);
+		return true;
+	}
+
 	if (!FStrEq(pcmd, "menuselect"))
 		return false;
 
@@ -2632,6 +2671,63 @@ float CHalfLifeCrowbarHunt::GetKillerChancePercent(int index) const
 		return 0.0f;
 
 	return (m_flKillerWeight[index] / flTotal) * 100.0f;
+}
+
+bool CHalfLifeCrowbarHunt::IsAdmin(int index) const
+{
+	if (index < 1 || index > MAX_PLAYERS || !m_bAdmin[index])
+		return false;
+
+	CBasePlayer* pPlayer = GetPlayerByIndex(index);
+
+	// A bot has no screen, and its slot inherits nothing from whoever had it.
+	return pPlayer && (pPlayer->pev->flags & FL_FAKECLIENT) == 0;
+}
+
+// One row per message, not one message for the table: user messages cap at
+// 192 bytes, and thirty-two names do not fit. Weight and chance travel as
+// fixed-point shorts - three decimals on the weight so ch_killer_min_weight's
+// 0.05 still reads as itself, one on the chance because that is all the panel
+// prints. The terminator row (slot 0) carries the two cvars behind the table
+// so the panel can say what a draw costs without a cvar query of its own.
+void CHalfLifeCrowbarHunt::SendKillerOdds(CBasePlayer* pPlayer) const
+{
+	if (!pPlayer)
+		return;
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
+	{
+		CBasePlayer* pOther = GetPlayerByIndex(i);
+
+		if (!pOther)
+			continue;
+
+		const float flChance = GetKillerChancePercent(i);
+		int flags = flChance > 0.0f ? 1 : 0;
+
+		if (m_bDisguised[i])
+			flags |= 2;
+
+		// The real name, as ch_odds prints, next to the name the room sees
+		// (netname is whatever anonymous mode or a disguise dealt) and the
+		// role. The admin's whole question under anonymous mode is who is who,
+		// and this panel is the one place the answer is allowed to go.
+		MESSAGE_BEGIN(MSG_ONE, gmsgCHAdmin, nullptr, pPlayer->pev);
+		WRITE_BYTE(i);
+		WRITE_BYTE(flags);
+		WRITE_SHORT(static_cast<int>(GetKillerWeight(i) * 1000.0f + 0.5f));
+		WRITE_SHORT(static_cast<int>(flChance * 10.0f + 0.5f));
+		WRITE_STRING(GetRealName(i));
+		WRITE_STRING(STRING(pOther->pev->netname));
+		WRITE_BYTE(static_cast<int>(m_playerRoles[i]));
+		MESSAGE_END();
+	}
+
+	MESSAGE_BEGIN(MSG_ONE, gmsgCHAdmin, nullptr, pPlayer->pev);
+	WRITE_BYTE(0);
+	WRITE_SHORT(static_cast<int>(V_max(0.0f, ch_killer_decay.value) * 100.0f + 0.5f));
+	WRITE_SHORT(static_cast<int>(V_max(0.0f, ch_killer_recover.value) * 100.0f + 0.5f));
+	MESSAGE_END();
 }
 
 CBasePlayer* CHalfLifeCrowbarHunt::PickWeightedKiller() const

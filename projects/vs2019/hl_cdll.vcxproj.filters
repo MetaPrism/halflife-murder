@@ -267,6 +267,9 @@
     <ClCompile Include="..\..\game_shared\vgui_listbox.cpp">
       <Filter>Source Files\game_shared</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\cl_dll\vgui_CHAdminPanel.cpp">
+      <Filter>Source Files\cl_dll</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\cl_dll\vgui_MOTDWindow.cpp">
       <Filter>Source Files\cl_dll</Filter>
     </ClCompile>
@@ -430,6 +433,9 @@
     </ClInclude>
     <ClInclude Include="..\..\game_shared\voice_banmgr.h">
       <Filter>Header Files\game_shared</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\cl_dll\vgui_CHAdminPanel.h">
+      <Filter>Header Files\cl_dll</Filter>
     </ClInclude>
     <ClInclude Include="..\..\cl_dll\vgui_SpectatorPanel.h">
       <Filter>Header Files\cl_dll</Filter>

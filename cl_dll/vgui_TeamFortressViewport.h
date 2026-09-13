@@ -36,6 +36,7 @@
 #define MENU_CLASSHELP2 			7
 #define MENU_REPEATHELP 			8
 #define MENU_SPECHELP				9
+#define MENU_CHADMIN				10	// Crowbar Hunt Killer odds table, admin only
 using namespace vgui;
 
 class Cursor;
@@ -51,6 +52,7 @@ class DragNDropPanel;
 class CTransparentPanel;
 class CClassMenuPanel;
 class CTeamMenuPanel;
+class CCHAdminPanel;
 class TeamFortressViewport;
 
 char* GetVGUITGAName(const char *pszName);
@@ -612,6 +614,7 @@ public:
 	bool MsgFunc_AllowSpec( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_SpecFade( const char *pszName, int iSize, void *pbuf );	
 	bool MsgFunc_ResetFade( const char *pszName, int iSize, void *pbuf );	
+	bool MsgFunc_CHAdmin( const char *pszName, int iSize, void *pbuf );
 
 	// Input
 	bool SlotInput( int iSlot );
@@ -634,6 +637,7 @@ public:
 	CClassMenuPanel	*m_pClassMenu;
 	ScorePanel		*m_pScoreBoard;
 	SpectatorPanel *		m_pSpectatorPanel;
+	CCHAdminPanel *		m_pCHAdminPanel;	// created on the first CHAdmin message, kept for the session
 	char			m_szServerName[ MAX_SERVERNAME_LENGTH ];
 };
 

@@ -45,7 +45,7 @@ enum class CHRole
 #define CH_ROUND_OVER_DELAY 2.0f
 
 // Played to everyone as the result appears. Placeholder until one is chosen.
-#define CH_ROUND_OVER_SOUND "buttons/bell1.wav"
+#define CH_ROUND_OVER_SOUND "buttons/elevbell1.wav"
 
 // How long, in seconds, the "really spectate?" prompt stays up and its answer
 // is accepted.
@@ -212,6 +212,10 @@ public:
 	// joins or dies, and a display that wants to show why wants both.
 	float GetKillerWeight(int index) const;
 
+	// Whether this slot may open the admin odds panel: the listen server host,
+	// or anyone who has given ch_admin_pass this connection. Never bots.
+	bool IsAdmin(int index) const;
+
 	// A player walked into a piece of loot. Returns false to leave it lying
 	// there: outside a live round, or for anyone not playing this round.
 	bool CollectLoot(CBasePlayer* pPlayer);
@@ -315,6 +319,10 @@ private:
 
 	// Total weight across everyone eligible, 0 if nobody is.
 	float TotalKillerWeight() const;
+
+	// Push the whole odds table to one client for its admin panel: a CHAdmin
+	// message per connected player, then the terminator. See UserMessages.h.
+	void SendKillerOdds(CBasePlayer* pPlayer) const;
 
 	// --- role management ---
 	void   AssignRoles();
@@ -452,6 +460,10 @@ private:
 	// Killer knocks it down. Cleared with the slot, so a player who reconnects
 	// comes back at full odds - see ResetPlayerSlot().
 	float m_flKillerWeight[MAX_PLAYERS + 1];
+
+	// Whether each slot has proven itself an admin - connected from the listen
+	// server's own machine, or typed ch_admin_pass once. Cleared with the slot.
+	bool m_bAdmin[MAX_PLAYERS + 1];
 
 	// gpGlobals->time to send each player the scoreboard title, or 0 for nothing
 	// pending. Same indexing as m_playerRoles.

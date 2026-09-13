@@ -53,6 +53,7 @@
 #include "vgui_TeamFortressViewport.h"
 #include "vgui_ScorePanel.h"
 #include "vgui_SpectatorPanel.h"
+#include "vgui_CHAdminPanel.h"
 
 #include "shake.h"
 #include "screenfade.h"
@@ -522,6 +523,7 @@ TeamFortressViewport::TeamFortressViewport(int x, int y, int wide, int tall) : P
 	m_pClassMenu = NULL;
 	m_pScoreBoard = NULL;
 	m_pSpectatorPanel = NULL;
+	m_pCHAdminPanel = NULL;
 	m_pCurrentMenu = NULL;
 	m_pCurrentCommandMenu = NULL;
 
@@ -1512,6 +1514,12 @@ void TeamFortressViewport::ShowVGUIMenu(int iMenu)
 		pNewMenu = ShowClassMenu();
 		break;
 
+	// Only ever reached from MsgFunc_CHAdmin, which has created the panel
+	// and filled it by the time it asks for it to be shown.
+	case MENU_CHADMIN:
+		pNewMenu = m_pCHAdminPanel;
+		break;
+
 	default:
 		break;
 	}
@@ -1882,6 +1890,14 @@ bool TeamFortressViewport::KeyInput(bool down, int keynum, const char* pszCurren
 			}
 		}
 
+		// Escape closes the admin odds panel. Not enter or space: the admin is
+		// usually still playing, and those keys are bound to things.
+		if (down && keynum == K_ESCAPE && iMenuID == MENU_CHADMIN)
+		{
+			HideTopMenu();
+			return false;
+		}
+
 		// Grab enter keys to close TextWindows
 		if (down && (keynum == K_ENTER || keynum == K_KP_ENTER || keynum == K_SPACE || keynum == K_ESCAPE))
 		{
@@ -2072,6 +2088,51 @@ bool TeamFortressViewport::MsgFunc_ServerName(const char* pszName, int iSize, vo
 
 	strcpy(g_szPendingServerName, m_szServerName);
 
+	return true;
+}
+
+// Crowbar Hunt: one row of the admin Killer-odds table, or its terminator.
+// See gmsgCHAdmin in dlls/UserMessages.h for the layout. The panel is built
+// the first time a row arrives - only admins are ever sent one, so everyone
+// else never pays for it - and shown once the terminator completes a table.
+bool TeamFortressViewport::MsgFunc_CHAdmin(const char* pszName, int iSize, void* pbuf)
+{
+	BEGIN_READ(pbuf, iSize);
+
+	const int slot = READ_BYTE();
+
+	if (!m_pCHAdminPanel)
+	{
+		m_pCHAdminPanel = new CCHAdminPanel(0, 0, ScreenWidth, ScreenHeight);
+		m_pCHAdminPanel->setParent(this);
+		m_pCHAdminPanel->setVisible(false);
+	}
+
+	if (slot == 0)
+	{
+		const float flDecay = READ_SHORT() / 100.0f;
+		const float flRecover = READ_SHORT() / 100.0f;
+		m_pCHAdminPanel->EndTable(flDecay, flRecover);
+
+		if (!m_pCHAdminPanel->isVisible())
+			ShowVGUIMenu(MENU_CHADMIN);
+
+		return true;
+	}
+
+	CCHAdminPanel::Row row;
+	const int flags = READ_BYTE();
+	row.flWeight = READ_SHORT() / 1000.0f;
+	row.flChance = READ_SHORT() / 10.0f;
+	row.bInDraw = (flags & 1) != 0;
+	row.bDisguised = (flags & 2) != 0;
+	strncpy(row.szName, READ_STRING(), sizeof(row.szName));
+	row.szName[sizeof(row.szName) - 1] = '\0';
+	strncpy(row.szShownName, READ_STRING(), sizeof(row.szShownName));
+	row.szShownName[sizeof(row.szShownName) - 1] = '\0';
+	row.iRole = READ_BYTE();
+
+	m_pCHAdminPanel->AddRow(row);
 	return true;
 }
 

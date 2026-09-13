@@ -225,6 +225,13 @@ int __MsgFunc_RandomPC(const char* pszName, int iSize, void* pbuf)
 	return 0;
 }
 
+int __MsgFunc_CHAdmin(const char* pszName, int iSize, void* pbuf)
+{
+	if (gViewPort)
+		return static_cast<int>(gViewPort->MsgFunc_CHAdmin(pszName, iSize, pbuf));
+	return 0;
+}
+
 int __MsgFunc_ServerName(const char* pszName, int iSize, void* pbuf)
 {
 	if (gViewPort)
@@ -400,6 +407,7 @@ void CHud::Init()
 	HOOK_MESSAGE(BuildSt);
 	HOOK_MESSAGE(RandomPC);
 	HOOK_MESSAGE(ServerName);
+	HOOK_MESSAGE(CHAdmin);
 	HOOK_MESSAGE(ScoreInfo);
 	HOOK_MESSAGE(TeamScore);
 	HOOK_MESSAGE(TeamInfo);

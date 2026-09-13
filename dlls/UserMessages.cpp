@@ -73,5 +73,6 @@ void LinkUserMessages()
 	gmsgCHClearFX = REG_USER_MSG("CHClearFX", 0); // map reset: client drops its decals
 	gmsgSpectator = REG_USER_MSG("Spectator", 2); // player slot, 1 if observing
 	gmsgCHProxVoice = REG_USER_MSG("CHProxVoice", 3); // fade voices by distance: on/off, radius
+	gmsgCHAdmin = REG_USER_MSG("CHAdmin", -1);   // one Killer-odds table row, or the terminator
 
 }

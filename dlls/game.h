@@ -120,6 +120,11 @@ extern cvar_t ch_killer_recover;
 // take somebody out of the draw entirely.
 extern cvar_t ch_killer_min_weight;
 
+// Password for "ch_adminpanel <pass>", the client-side Killer odds panel. Empty
+// (the default) means only the listen server host can open it. The host never
+// needs the password; anyone else needs it once per connection.
+extern cvar_t ch_admin_pass;
+
 // Bot behaviour: 1 leaves fake clients standing still (they only exist to fill
 // out a round), 0 makes them wander in a straight line and pick a new direction
 // whenever they run into something.
