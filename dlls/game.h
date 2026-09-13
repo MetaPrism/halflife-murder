@@ -85,6 +85,11 @@ extern cvar_t ch_round_time;
 // clock and hides it again. 0 turns the mechanic off.
 extern cvar_t ch_killerfogtime;
 
+// Footsteps: every step, jump and landing leaves a print in the player's own
+// colour that only the Killer can see (their own included), for this many
+// seconds. 0 turns the mechanic off. See cl_dll/ch_footsteps.cpp for the drawing.
+extern cvar_t ch_footsteps;
+
 // Loot: how many seconds apart pieces appear during a live round (0 turns
 // loot off), and how many may lie uncollected at once before spawning pauses.
 // Where they appear is the map's business - see crowbar_hunt_loot.h.

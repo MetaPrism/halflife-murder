@@ -309,6 +309,24 @@ private:
 	static void SetKillerFogTint(CBasePlayer* pPlayer, bool bOn);
 	static void SendKillerFogNotice(CBasePlayer* pPlayer, bool bOn);
 
+	// --- footsteps ---
+	// Every step, jump and landing during a live round leaves a print in the
+	// player's own colour that only the Killer sees, for ch_footsteps seconds.
+	// The prints live on the Killer's client; the server only reports them.
+
+	// Per-frame, from PlayerThink(): watch the player's movement state for a
+	// step or a ground transition and report it to the Killer.
+	void ServiceFootsteps(CBasePlayer* pPlayer);
+
+	// Drop one print under the player, iFoot as in gmsgCHFootstep (1 left,
+	// 2 right), and one for each foot for a landing or a takeoff.
+	void LeaveFootprint(CBasePlayer* pPlayer, int iFoot);
+	void LeaveFootprintPair(CBasePlayer* pPlayer);
+
+	// Tell every client to forget the prints it holds: the round is over,
+	// and the next Killer must not inherit them.
+	static void ClearFootprints();
+
 	// --- loot ---
 	// Once per map, after its entities have spawned: if the author placed
 	// ch_loot_spawn markers, they replace whatever the loot file gave us.
@@ -515,6 +533,13 @@ private:
 	float  m_flNextKillerFogNotice;
 	float  m_flLastKillerFogPuff;
 	Vector m_vecLastKillerFogPuff;
+
+	// Footstep tracking, indexed like m_playerRoles and cleared with it. The
+	// step is read off pev->iStepLeft, which PM_PlayStepSound() flips once per
+	// footfall; the ground flag catches jumps and landings. -1 is "not seen
+	// yet", so a fresh slot syncs on its first frame instead of printing.
+	int  m_iLastStepLeft[MAX_PLAYERS + 1];
+	bool m_bWasOnGround[MAX_PLAYERS + 1];
 	void SendRoleHud(CBasePlayer* pPlayer) const;
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)

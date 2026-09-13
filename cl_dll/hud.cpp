@@ -479,6 +479,7 @@ void CHud::Init()
 	m_CHRole.Init();
 	m_CHLook.Init();
 	m_CHProxVoice.Init();
+	m_CHFootsteps.Init();
 	GetClientVoiceMgr()->Init(&g_VoiceStatusHelper, (vgui::Panel**)&gViewPort);
 
 	m_Menu.Init();
@@ -638,6 +639,7 @@ void CHud::VidInit()
 	m_CHRole.VidInit();
 	m_CHLook.VidInit();
 	m_CHProxVoice.VidInit();
+	m_CHFootsteps.VidInit();
 	GetClientVoiceMgr()->VidInit();
 }
 

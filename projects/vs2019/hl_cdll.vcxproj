@@ -128,6 +128,7 @@ cmd /c ""$(ProjectDir)..\..\filecopy.bat" "$(SolutionDir)../../network" "" "delt
     <ClCompile Include="..\..\cl_dll\ch_role.cpp" />
     <ClCompile Include="..\..\cl_dll\ch_look.cpp" />
     <ClCompile Include="..\..\cl_dll\ch_proxvoice.cpp" />
+    <ClCompile Include="..\..\cl_dll\ch_footsteps.cpp" />
     <ClCompile Include="..\..\cl_dll\death.cpp" />
     <ClCompile Include="..\..\cl_dll\demo.cpp" />
     <ClCompile Include="..\..\cl_dll\entity.cpp" />

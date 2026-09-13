@@ -51,4 +51,6 @@ void DLLEXPORT HUD_DrawTransparentTriangles()
 
 	if (g_pParticleMan)
 		g_pParticleMan->Update();
+
+	gHUD.m_CHFootsteps.DrawTriangles();
 }

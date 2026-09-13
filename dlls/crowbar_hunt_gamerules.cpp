@@ -138,6 +138,16 @@ const char* const g_szResettableClassnames[] = {
 	"func_wall_toggle",
 };
 
+// Footprints. Each foot lands CH_FOOTSTEP_SPREAD units to its own side of the
+// player's centre line, on whatever floor a trace of CH_FOOTSTEP_TRACE_DEPTH
+// finds under it - the standing hull's feet are 36 below the origin, the
+// ducking hull's 18, and a foot over a step edge should find the lower floor
+// rather than hang in the air. A print sits CH_FOOTSTEP_LIFT above the floor
+// so it does not fight the floor for depth.
+constexpr float CH_FOOTSTEP_SPREAD      = 6.0f;
+constexpr float CH_FOOTSTEP_TRACE_DEPTH = 72.0f;
+constexpr float CH_FOOTSTEP_LIFT        = 1.0f;
+
 // Leftovers from the previous round: gibs, dropped weapon bags, live ordnance
 // and in-flight projectiles.
 const char* const g_szLitterClassnames[] = {
@@ -622,6 +632,10 @@ void CHalfLifeCrowbarHunt::SetRoundState(CHRoundState state)
 	// Same for the Killer's presence: it belongs to the live round only.
 	if (state != CHRoundState::InProgress)
 		ClearKillerFog();
+
+	// And the footprints: a round's prints are that round's Killer's to see,
+	// and the next Killer starts from a clean floor.
+	ClearFootprints();
 
 	// Entering the waiting state should say so immediately, not up to a full
 	// interval later.
@@ -1919,6 +1933,9 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_iDisguiseTopColor[index] = 0;
 	m_iDisguiseBottomColor[index] = 0;
 	m_iDisguiseAnonColor[index] = -1;
+
+	m_iLastStepLeft[index] = -1;
+	m_bWasOnGround[index]  = false;
 }
 
 // Wiped at both ends of an occupancy rather than just on the way out, so a slot
@@ -2002,6 +2019,7 @@ void CHalfLifeCrowbarHunt::PlayerThink(CBasePlayer* pPlayer)
 	ServicePunishment(pPlayer);
 	UpdatePlayerSpeed(pPlayer);
 	ServiceServerNameSend(pPlayer);
+	ServiceFootsteps(pPlayer);
 
 	// Catches anyone alive in a live round without a role: a mid-round joiner,
 	// or someone who connected during the countdown after AssignRoles() had
@@ -2363,6 +2381,156 @@ void CHalfLifeCrowbarHunt::SetKillerFogTint(CBasePlayer* pPlayer, bool bOn)
 	UTIL_ScreenFade(pPlayer, Vector(0, 0, 0),
 		bOn ? CH_KILLER_FOG_FADE_IN : CH_KILLER_FOG_FADE_OUT, 0.0f,
 		CH_KILLER_FOG_TINT, bOn ? (FFADE_OUT | FFADE_STAYOUT) : FFADE_IN);
+}
+
+// ---------------------------------------------------------------------------
+// Footsteps
+//
+// Every footfall, jump and landing in a live round leaves a print in the
+// player's own colour. Only the Killer sees them - their own included, so they
+// can tell which trail is theirs - and for ch_footsteps seconds each; after
+// that the floor forgets. The prints exist only on the Killer's client
+// (ch_footsteps.cpp), which draws the ones near them and lets the rest lapse;
+// the server's whole job is to notice a step and report it.
+//
+// A step is read off pev->iStepLeft: pm_shared flips it in PM_PlayStepSound()
+// once per footfall, on the same cadence and speed threshold as the sound,
+// and the engine writes the pmove copy back to the entvar every move. So
+// this needs nothing from pm_shared and stays in step with what the player
+// hears - a sneaking player below the walk threshold leaves no sound and no
+// prints either.
+// ---------------------------------------------------------------------------
+void CHalfLifeCrowbarHunt::ServiceFootsteps(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return;
+
+	const int  iStepLeft = pPlayer->pev->iStepLeft;
+	const bool bOnGround = FBitSet(pPlayer->pev->flags, FL_ONGROUND);
+
+	const int  iLastStepLeft = m_iLastStepLeft[index];
+	const bool bWasOnGround  = m_bWasOnGround[index];
+
+	m_iLastStepLeft[index] = iStepLeft;
+	m_bWasOnGround[index]  = bOnGround;
+
+	// Sync only: the mechanic is off, the round isn't live, the player isn't
+	// walking the map, or this is the slot's first look at them.
+	if (ch_footsteps.value <= 0.0f || m_roundState != CHRoundState::InProgress ||
+		!pPlayer->IsAlive() || FBitSet(pPlayer->pev->flags, FL_FROZEN) ||
+		pPlayer->IsObserver() || iLastStepLeft < 0)
+	{
+		return;
+	}
+
+	// Nothing to print on: ladders flip iStepLeft too, and a wader's feet
+	// are under water.
+	if (pPlayer->pev->movetype == MOVETYPE_FLY || pPlayer->pev->waterlevel >= 2)
+		return;
+
+	// Landing, and the push-off of a jump. Both feet, since both are down
+	// for either. The takeoff check wants upward velocity so a player who
+	// simply walks off a ledge does not leave a pair at the edge.
+	if (bOnGround != bWasOnGround)
+	{
+		if (bOnGround || pPlayer->pev->velocity.z > 0.0f)
+			LeaveFootprintPair(pPlayer);
+		return;
+	}
+
+	if (bOnGround && iStepLeft != iLastStepLeft)
+		LeaveFootprint(pPlayer, iStepLeft != 0 ? 1 : 2);
+}
+
+void CHalfLifeCrowbarHunt::LeaveFootprintPair(CBasePlayer* pPlayer)
+{
+	LeaveFootprint(pPlayer, 1);
+	LeaveFootprint(pPlayer, 2);
+}
+
+namespace
+{
+// The engine's topcolor/bottomcolor byte as an rgb triple, at full saturation
+// and value. Not degrees: 0..255 is the whole wheel (see g_CHAnonColors), so
+// this is what the studio renderer has actually painted the player - their
+// own colours, an anonymous deal or a disguise alike, without this having to
+// know which.
+void CH_HueByteToRGB(int hue, int& r, int& g, int& b)
+{
+	const float h = (static_cast<float>(hue & 0xff) / 255.0f) * 6.0f; // sextant
+	const int   i = static_cast<int>(h) % 6;
+	const float f = h - static_cast<float>(static_cast<int>(h));
+
+	const int q = static_cast<int>(255.0f * (1.0f - f));
+	const int t = static_cast<int>(255.0f * f);
+
+	switch (i)
+	{
+	case 0: r = 255; g = t;   b = 0;   break;
+	case 1: r = q;   g = 255; b = 0;   break;
+	case 2: r = 0;   g = 255; b = t;   break;
+	case 3: r = 0;   g = q;   b = 255; break;
+	case 4: r = t;   g = 0;   b = 255; break;
+	default: r = 255; g = 0;  b = q;   break;
+	}
+}
+} // namespace
+
+void CHalfLifeCrowbarHunt::LeaveFootprint(CBasePlayer* pPlayer, int iFoot)
+{
+	CBasePlayer* pKiller = GetKiller();
+
+	// Nobody to see it. A bot Killer has no screen to draw on either.
+	if (!pKiller || FBitSet(pKiller->pev->flags, FL_FAKECLIENT))
+		return;
+
+	// Sideways from the body's facing, not the direction of travel: feet
+	// stay under the hips when strafing.
+	const float yaw = pPlayer->pev->angles.y;
+
+	Vector vecRight;
+	UTIL_MakeVectorsPrivate(Vector(0.0f, yaw, 0.0f), nullptr, vecRight, nullptr);
+
+	const Vector vecStart = pPlayer->pev->origin + vecRight * (iFoot == 1 ? -CH_FOOTSTEP_SPREAD : CH_FOOTSTEP_SPREAD);
+
+	TraceResult tr;
+	UTIL_TraceLine(vecStart, vecStart - Vector(0.0f, 0.0f, CH_FOOTSTEP_TRACE_DEPTH), ignore_monsters, pPlayer->edict(), &tr);
+
+	// Nothing under the foot within reach - mid-air over a drop, or a
+	// ground flag the floor has since left behind.
+	if (tr.flFraction >= 1.0f)
+		return;
+
+	const Vector vecPrint = tr.vecEndPos + Vector(0.0f, 0.0f, CH_FOOTSTEP_LIFT);
+
+	// The colour the player is painted right now - topcolor is what the
+	// studio renderer remaps the model from, whoever set it.
+	char* infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict());
+	int   r, g, b;
+	CH_HueByteToRGB(atoi(g_engfuncs.pfnInfoKeyValue(infobuffer, "topcolor")), r, g, b);
+
+	MESSAGE_BEGIN(MSG_ONE, gmsgCHFootstep, nullptr, pKiller->edict());
+	WRITE_BYTE(iFoot);
+	WRITE_COORD(vecPrint.x);
+	WRITE_COORD(vecPrint.y);
+	WRITE_COORD(vecPrint.z);
+	WRITE_ANGLE(yaw);
+	WRITE_BYTE(r);
+	WRITE_BYTE(g);
+	WRITE_BYTE(b);
+	WRITE_SHORT(static_cast<int>(ch_footsteps.value));
+	MESSAGE_END();
+}
+
+// Everyone, not just the Killer: whoever it was may have left, and a client
+// that was the Killer must not carry a floor full of prints into next round.
+void CHalfLifeCrowbarHunt::ClearFootprints()
+{
+	MESSAGE_BEGIN(MSG_ALL, gmsgCHFootstep, nullptr);
+	WRITE_BYTE(0);
+	MESSAGE_END();
 }
 
 // The notice, or a blank that takes it down. Its own channel: the role

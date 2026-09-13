@@ -101,4 +101,11 @@ inline int gmsgCHAdmin = 0;
 // name the body was wearing when it died. An empty name takes the label down.
 inline int gmsgCHLook = 0;
 
+// Crowbar Hunt footsteps, sent to the Killer only: a kind byte - 0 wipes every
+// print the client holds, 1 is a left foot, 2 a right - then for a print its
+// position (coords), yaw (angle byte), colour (three bytes) and how many
+// seconds it lasts (short). Everything the client needs to draw it, so a
+// print costs the server nothing after it is sent.
+inline int gmsgCHFootstep = 0;
+
 void LinkUserMessages();

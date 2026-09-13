@@ -485,6 +485,48 @@ private:
 	float m_flBaseline;  // the player's own setting, to put back
 };
 
+// Crowbar Hunt footprints, as the Killer sees them. Draws nothing in the 2D
+// pass; the prints go down in DrawTriangles(). See ch_footsteps.cpp.
+class CHudCHFootsteps : public CHudBase
+{
+public:
+	bool Init() override;
+	bool VidInit() override;
+	void InitHUDData() override;
+	bool MsgFunc_CHFootstep(const char* pszName, int iSize, void* pbuf);
+
+	// From HUD_DrawTransparentTriangles().
+	void DrawTriangles();
+
+private:
+	// Enough for a full server at a sprint for the default ch_footsteps; past
+	// that the oldest go first, which the fade would have taken next anyway.
+	static constexpr int CH_MAX_FOOTPRINTS = 4096;
+
+	// Per frame, of those in view. Newest win.
+	static constexpr int CH_FOOTSTEP_MAX_DRAWN = 512;
+
+	struct CHFootprint
+	{
+		Vector origin;
+		float  yaw;
+		float  rgb[3];
+		bool   bRight;
+		float  flBorn;
+		float  flDies;
+	};
+
+	void Clear();
+
+	HSPRITE m_hSprite;
+
+	// A ring, oldest to newest: the next write goes at m_iNext, and the
+	// m_iCount slots before it (wrapping) are live.
+	CHFootprint m_prints[CH_MAX_FOOTPRINTS];
+	int         m_iCount;
+	int         m_iNext;
+};
+
 class CHudTextMessage : public CHudBase
 {
 public:
@@ -676,6 +718,7 @@ public:
 	CHudCHRole m_CHRole;
 	CHudCHLook m_CHLook;
 	CHudCHProxVoice m_CHProxVoice;
+	CHudCHFootsteps m_CHFootsteps;
 
 	void Init();
 	void VidInit();
