@@ -106,6 +106,11 @@ bool CGameRules::GetNextBestWeapon(CBasePlayer* pPlayer, CBasePlayerItem* pCurre
 	return false;
 }
 
+float CGameRules::GetIDTargetRange(CBasePlayer* pPlayer)
+{
+	return MAX_ID_RANGE;
+}
+
 //=========================================================
 //=========================================================
 bool CGameRules::CanHaveAmmo(CBasePlayer* pPlayer, const char* pszAmmoName, int iMaxCarry)

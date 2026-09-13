@@ -1740,6 +1740,9 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_iSentSpectator[index] = -1;
 	m_iSentProxVoice[index] = -1;
 	m_hLookCorpse[index] = nullptr;
+	m_bLookLabelUp[index] = false;
+	m_flLookCorpseLinger[index] = 0.0f;
+	m_flLookCorpseDist[index] = 0.0f;
 	m_flSpectatePromptExpires[index] = 0.0f;
 	m_iLootCount[index] = 0;
 	m_iLootRewards[index] = 0;
@@ -3203,55 +3206,118 @@ void CHalfLifeCrowbarHunt::LeaveCorpse(CBasePlayer* pPlayer) const
 	UTIL_SetOrigin(pev, pPlayer->pev->origin);
 }
 
-// The body a player is looking at, or null. A corpse is SOLID_NOT, so a
-// traceline passes straight through it; this aims the same way PlayerUse()
-// does instead - at the nearest corner of the box - but with a tighter cone,
-// and reaches further than +use so a body can be read from across a room.
-// The one trace here is against the world only, to keep names from leaking
-// through a wall.
-CCrowbarHuntCorpse* CHalfLifeCrowbarHunt::FindCorpseInView(CBasePlayer* pPlayer) const
+namespace
 {
-	constexpr float CH_LOOK_REACH = 192.0f; // world units from the eyes
-	constexpr float CH_LOOK_COS = 0.92f;    // about 23 degrees off centre
+// Where a ray leaving vecStart along vecDir first enters an axis-aligned box,
+// as a distance along the ray, or -1 if it misses. A corpse is SOLID_NOT, so
+// the engine's traceline cannot answer this for us.
+float RayHitsBox(Vector vecStart, Vector vecDir, Vector vecMins, Vector vecMaxs)
+{
+	// By value rather than const&: Vector only indexes through a non-const
+	// float* conversion.
+	float flEnter = 0.0f;
+	float flExit = 1e30f;
 
-	const Vector vecEyes = pPlayer->pev->origin + pPlayer->pev->view_ofs;
+	for (int axis = 0; axis < 3; axis++)
+	{
+		if (fabs(vecDir[axis]) < 1e-6f)
+		{
+			// Parallel to this slab: either inside it the whole way or never.
+			if (vecStart[axis] < vecMins[axis] || vecStart[axis] > vecMaxs[axis])
+				return -1.0f;
 
-	UTIL_MakeVectors(pPlayer->pev->v_angle);
+			continue;
+		}
+
+		float flNear = (vecMins[axis] - vecStart[axis]) / vecDir[axis];
+		float flFar = (vecMaxs[axis] - vecStart[axis]) / vecDir[axis];
+
+		if (flNear > flFar)
+		{
+			const float flSwap = flNear;
+			flNear = flFar;
+			flFar = flSwap;
+		}
+
+		flEnter = V_max(flEnter, flNear);
+		flExit = V_min(flExit, flFar);
+
+		if (flEnter > flExit)
+			return -1.0f;
+	}
+
+	return flEnter;
+}
+} // namespace
+
+// The body under a player's crosshair, or null. Deliberately the same test
+// CBasePlayer::UpdateStatusBar() uses to put a live player's name up - same
+// eye ray, same MAX_ID_RANGE - so that looking at a body and looking at a
+// player feel like the same act. The difference is that a corpse is
+// SOLID_NOT, so the engine's traceline passes straight through it: the box is
+// tested by hand here, and one trace then makes sure nothing solid - a wall,
+// or a live player, whose own label would otherwise draw over this one - is
+// in the way. The distance to the body comes back in *pflDist.
+CCrowbarHuntCorpse* CHalfLifeCrowbarHunt::FindCorpseInView(CBasePlayer* pPlayer, float* pflDist) const
+{
+	const Vector vecEyes = pPlayer->EyePosition();
+
+	UTIL_MakeVectors(pPlayer->pev->v_angle + pPlayer->pev->punchangle);
+	const Vector vecDir = gpGlobals->v_forward;
 
 	CBaseEntity*        pEntity = nullptr;
 	CCrowbarHuntCorpse* pBest = nullptr;
-	float               flBestDot = CH_LOOK_COS;
+	float               flBestDist = MAX_ID_RANGE;
 
 	while ((pEntity = UTIL_FindEntityByClassname(pEntity, "ch_corpse")) != nullptr)
 	{
-		const Vector vecTarget = VecBModelOrigin(pEntity->pev) + UTIL_ClampVectorToBox(vecEyes - VecBModelOrigin(pEntity->pev), pEntity->pev->size * 0.5f);
-		Vector       vecLOS = vecTarget - vecEyes;
-		const float  flDist = vecLOS.Length();
+		const float flDist = RayHitsBox(vecEyes, vecDir, pEntity->pev->absmin, pEntity->pev->absmax);
 
-		if (flDist > CH_LOOK_REACH)
-			continue;
-
-		if (flDist > 1.0f)
-			vecLOS = vecLOS / flDist;
-		else
-			vecLOS = gpGlobals->v_forward; // standing on it: count as looking at it
-
-		const float flDot = DotProduct(vecLOS, gpGlobals->v_forward);
-
-		if (flDot <= flBestDot)
+		if (flDist < 0.0f || flDist >= flBestDist)
 			continue;
 
 		TraceResult tr;
-		UTIL_TraceLine(vecEyes, vecTarget, ignore_monsters, pPlayer->edict(), &tr);
+		UTIL_TraceLine(vecEyes, vecEyes + vecDir * flDist, dont_ignore_monsters, pPlayer->edict(), &tr);
 
 		if (tr.flFraction < 1.0f)
 			continue;
 
 		pBest = static_cast<CCrowbarHuntCorpse*>(pEntity);
-		flBestDot = flDot;
+		flBestDist = flDist;
 	}
 
+	*pflDist = flBestDist;
 	return pBest;
+}
+
+// Whether the status bar's own trace would name a live player right now.
+static bool PlayerUnderCrosshair(CBasePlayer* pPlayer)
+{
+	UTIL_MakeVectors(pPlayer->pev->v_angle + pPlayer->pev->punchangle);
+
+	const Vector vecEyes = pPlayer->EyePosition();
+	TraceResult  tr;
+
+	UTIL_TraceLine(vecEyes, vecEyes + gpGlobals->v_forward * MAX_ID_RANGE, dont_ignore_monsters, pPlayer->edict(), &tr);
+
+	if (tr.flFraction == 1.0f || FNullEnt(tr.pHit))
+		return false;
+
+	CBaseEntity* pHit = CBaseEntity::Instance(tr.pHit);
+
+	return pHit && pHit->Classify() == CLASS_PLAYER;
+}
+
+float CHalfLifeCrowbarHunt::GetIDTargetRange(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	// ServiceCorpseLook() ran earlier this frame (PreThink, against the
+	// status bar's PostThink), so this is current.
+	if (index >= 1 && index <= MAX_PLAYERS && m_bLookLabelUp[index])
+		return m_flLookCorpseDist[index];
+
+	return CHalfLifeMultiplay::GetIDTargetRange(pPlayer);
 }
 
 void CHalfLifeCrowbarHunt::ServiceCorpseLook(CBasePlayer* pPlayer)
@@ -3261,12 +3327,36 @@ void CHalfLifeCrowbarHunt::ServiceCorpseLook(CBasePlayer* pPlayer)
 	if (index < 1 || index > MAX_PLAYERS)
 		return;
 
-	CCrowbarHuntCorpse* pCorpse = FindCorpseInView(pPlayer);
+	float               flDist;
+	CCrowbarHuntCorpse* pCorpse = FindCorpseInView(pPlayer, &flDist);
 
-	if (static_cast<CBaseEntity*>(m_hLookCorpse[index]) == pCorpse)
+	if (pCorpse)
+	{
+		// Same hold the status bar gives a live player's name, so a glance
+		// that slides off the body does not make the label flicker.
+		m_flLookCorpseLinger[index] = gpGlobals->time + 1.0f;
+		m_flLookCorpseDist[index] = flDist;
+	}
+	else if (m_flLookCorpseLinger[index] > gpGlobals->time && static_cast<CBaseEntity*>(m_hLookCorpse[index]) != nullptr)
+	{
+		// Still holding the last one - unless the crosshair has moved onto a
+		// live player, whose name goes up in the same spot: the hold gives way
+		// at once rather than drawing over it.
+		if (!PlayerUnderCrosshair(pPlayer))
+			return;
+
+		m_flLookCorpseLinger[index] = 0.0f;
+	}
+
+	// "Same entity" means nothing to resend - except that a corpse swept by
+	// the map reset leaves the handle reading null too, and the label it put
+	// up would stay until the next real change. m_bLookLabelUp tells the two
+	// nulls apart.
+	if (static_cast<CBaseEntity*>(m_hLookCorpse[index]) == pCorpse && m_bLookLabelUp[index] == (pCorpse != nullptr))
 		return;
 
 	m_hLookCorpse[index] = pCorpse;
+	m_bLookLabelUp[index] = pCorpse != nullptr;
 
 	MESSAGE_BEGIN(MSG_ONE, gmsgCHLook, nullptr, pPlayer->edict());
 

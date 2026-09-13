@@ -466,14 +466,14 @@ cvar_t ch_crowbar_return_time = {"ch_crowbar_return_time", "40", FCVAR_SERVER};
 cvar_t ch_glow_shell = {"ch_glow_shell", "25", FCVAR_SERVER};
 
 cvar_t ch_sprint_speed = {"ch_sprint_speed", "270", FCVAR_SERVER};
-cvar_t ch_base_speed = {"ch_base_speed", "240", FCVAR_SERVER};
+cvar_t ch_base_speed = {"ch_base_speed", "230", FCVAR_SERVER};
 
 cvar_t ch_proxvoice = {"ch_proxvoice", "0", FCVAR_SERVER};
 
 cvar_t ch_punish_time = {"ch_punish_time", "20", FCVAR_SERVER};
 cvar_t ch_punish_tint = {"ch_punish_tint", "200", FCVAR_SERVER};
 
-cvar_t ch_round_time = {"ch_round_time", "300", FCVAR_SERVER};
+cvar_t ch_round_time = {"ch_round_time", "0", FCVAR_SERVER};
 
 cvar_t ch_loot_interval = {"ch_loot_interval", "15", FCVAR_SERVER};
 cvar_t ch_loot_max = {"ch_loot_max", "8", FCVAR_SERVER};
@@ -492,6 +492,8 @@ cvar_t ch_admin_pass = {"ch_admin_pass", "", FCVAR_PROTECTED};
 
 cvar_t bot_zombie = {"bot_zombie", "1", FCVAR_SERVER};
 cvar_t bot_hunt = {"bot_hunt", "0", FCVAR_SERVER};
+cvar_t bot_quota = {"bot_quota", "0", FCVAR_SERVER};
+cvar_t bot_quota_mode = {"bot_quota_mode", "add", FCVAR_SERVER};
 
 static bool SV_InitServer()
 {
@@ -578,6 +580,8 @@ void GameDLLInit()
 	CVAR_REGISTER(&ch_admin_pass);
 	CVAR_REGISTER(&bot_zombie);
 	CVAR_REGISTER(&bot_hunt);
+	CVAR_REGISTER(&bot_quota);
+	CVAR_REGISTER(&bot_quota_mode);
 
 	CVAR_REGISTER(&sv_allowbunnyhopping);
 

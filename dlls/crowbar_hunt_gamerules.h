@@ -141,6 +141,14 @@ public:
 	// them back, so CBreakable::Die() must not free their edict.
 	bool ShouldPreserveBrokenEntities() override { return true; }
 
+	// The corpse label and the status bar's player name draw in the same spot,
+	// so only the nearer of the two may show. This is the corpse's half of that
+	// deal: while a body is under the crosshair, the player-name trace is cut
+	// off at the body, so nobody standing behind it gets named. The other half
+	// - a player in front of a body hides the body's label - is in
+	// FindCorpseInView(), which traces against players too.
+	float GetIDTargetRange(CBasePlayer* pPlayer) override;
+
 	// Crowbar swings, body hits, weapon pickups, death cries and the death
 	// alarm all give away the Killer (or that someone just died) from out of
 	// sight. Silence them for everyone; wall hits stay audible.
@@ -429,7 +437,7 @@ private:
 	// on the server (it is never networked with the entity), so the lookup has
 	// to be done here; only changes are sent.
 	void ServiceCorpseLook(CBasePlayer* pPlayer);
-	CCrowbarHuntCorpse* FindCorpseInView(CBasePlayer* pPlayer) const;
+	CCrowbarHuntCorpse* FindCorpseInView(CBasePlayer* pPlayer, float* pflDist) const;
 
 	void CheckRoundWinConditions();
 
@@ -487,9 +495,15 @@ private:
 
 	// The corpse each slot was last told it is looking at, null for none. A
 	// corpse's identity never changes, so "same entity" means "nothing to
-	// resend", and one that is deleted under us reads as null and clears the
-	// label on the next think. Same indexing as m_playerRoles.
+	// resend". m_bLookLabelUp records whether the client currently has a
+	// label up, since a corpse deleted under us (the map reset) leaves the
+	// handle reading null while the label is still showing. The linger is
+	// gpGlobals->time until which the last corpse is still reported after
+	// the crosshair leaves it. All indexed like m_playerRoles.
 	EHANDLE m_hLookCorpse[MAX_PLAYERS + 1];
+	bool    m_bLookLabelUp[MAX_PLAYERS + 1];
+	float   m_flLookCorpseLinger[MAX_PLAYERS + 1];
+	float   m_flLookCorpseDist[MAX_PLAYERS + 1]; // eye distance to the labelled corpse, for GetIDTargetRange()
 
 	// gpGlobals->time each punished player's penalty runs out, or 0 for no
 	// penalty. Same indexing as m_playerRoles, and cleared with it: the penalty

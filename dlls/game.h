@@ -136,6 +136,15 @@ extern cvar_t bot_zombie;
 // whatever its role was given.
 extern cvar_t bot_hunt;
 
+// How many bots the server keeps on its own. 0 (the default) turns the quota
+// off and leaves "bot"/"bot_kickall" in full control. Otherwise ch_bots.cpp
+// adds or kicks one bot a second until the count is right, and bot_quota_mode
+// says what "right" means: "add" keeps exactly n bots regardless of who else
+// is on, "fill" keeps n players total, so bots leave as humans join and come
+// back as they go.
+extern cvar_t bot_quota;
+extern cvar_t bot_quota_mode;
+
 // Register Crowbar Hunt's server console commands ("ch_odds"). Called once
 // from GameDLLInit(), alongside the bot commands.
 void InitCrowbarHuntCommands();

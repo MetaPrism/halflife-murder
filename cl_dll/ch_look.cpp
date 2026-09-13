@@ -4,16 +4,19 @@
 // Crowbar Hunt corpse label. The server watches what each player is looking
 // at (CHalfLifeCrowbarHunt::ServiceCorpseLook) and sends the name and name
 // colour a body died wearing when one comes under the crosshair, and an empty
-// name when it leaves. Drawn just below the crosshair, so a glance at a body
-// reads the same way a glance at a live player's model does: this is who the
-// room knew them as, in the colour they wore - which for a disguised Killer's
-// victims is exactly the lie the Killer told.
+// name when it leaves. Drawn in the same place and style as the status bar's
+// ID line for a live player, so a glance at a body reads the same way a
+// glance at a standing player does: this is who the room knew them as, in the
+// colour they wore - which for a disguised Killer's victims is exactly the
+// lie the Killer told.
 //
 
 #include "hud.h"
 #include "cl_util.h"
 #include "parsemsg.h"
 #include "crowbar_hunt_shared.h"
+
+extern float g_ColorYellow[3]; // death.cpp
 
 DECLARE_MESSAGE(m_CHLook, CHLook)
 
@@ -62,31 +65,22 @@ bool CHudCHLook::Draw(float flTime)
 	if (m_szName[0] == '\0')
 		return true;
 
-	int r, g, b;
+	// Drawn exactly as CHudStatusBar draws its ID line for a live player -
+	// console font, centred under the crosshair at the hud_centerid offset,
+	// coloured the way GetClientColor() would colour that player - so a body
+	// and a standing player read the same. The anonymous table is the one the
+	// server tinted the model from; yellow is what GetClientColor() gives an
+	// unteamed player with no identity.
+	const float* pflColor = m_iAnonColor >= 0 ? g_CHAnonColors[m_iAnonColor].rgb : g_ColorYellow;
 
-	if (m_iAnonColor >= 0)
-	{
-		// The same table the server picked from when it tinted the model, so
-		// the label and the body agree.
-		const float* rgb = g_CHAnonColors[m_iAnonColor].rgb;
-		r = static_cast<int>(rgb[0] * 255.0f);
-		g = static_cast<int>(rgb[1] * 255.0f);
-		b = static_cast<int>(rgb[2] * 255.0f);
-	}
-	else
-	{
-		UnpackRGB(r, g, b, gHUD.m_iHUDColor);
-	}
+	int TextWidth, TextHeight;
+	GetConsoleStringSize(m_szName, &TextWidth, &TextHeight);
 
-	// pfnDrawString draws left-to-right from x, so measure first to centre.
-	int width = 0;
-	for (const char* p = m_szName; *p; p++)
-		width += gHUD.m_scrinfo.charWidths[static_cast<unsigned char>(*p)];
+	const int x = V_max(0, V_max(2, (ScreenWidth - TextWidth)) / 2);
+	const int y = (ScreenHeight / 2) + (int)(TextHeight * V_max(2.0f, CVAR_GET_FLOAT("hud_centerid")));
 
-	const int x = (ScreenWidth - width) / 2;
-	const int y = ScreenHeight / 2 + gHUD.m_scrinfo.iCharHeight * 2;
-
-	gHUD.DrawHudString(x, y, ScreenWidth, m_szName, r, g, b);
+	gEngfuncs.pfnDrawSetTextColor(pflColor[0], pflColor[1], pflColor[2]);
+	DrawConsoleString(x, y, m_szName);
 
 	return true;
 }

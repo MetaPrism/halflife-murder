@@ -1760,7 +1760,7 @@ void CBasePlayer::UpdateStatusBar()
 	TraceResult tr;
 	UTIL_MakeVectors(pev->v_angle + pev->punchangle);
 	Vector vecSrc = EyePosition();
-	Vector vecEnd = vecSrc + (gpGlobals->v_forward * MAX_ID_RANGE);
+	Vector vecEnd = vecSrc + (gpGlobals->v_forward * g_pGameRules->GetIDTargetRange(this));
 	UTIL_TraceLine(vecSrc, vecEnd, dont_ignore_monsters, edict(), &tr);
 
 	if (tr.flFraction != 1.0)

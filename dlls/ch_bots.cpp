@@ -6,6 +6,7 @@
 #include "client.h"
 #include "cdll_dll.h" // MAX_PLAYERS
 #include "gamerules.h"
+#include "crowbar_hunt_gamerules.h"
 #include "game.h"
 #include "ch_bots.h"
 
@@ -22,6 +23,12 @@
 // file started as, 1 is the hunting bot further down, which reads the world
 // with hull traces, gets over what is in its way, and swings at whoever it
 // walks into.
+//
+// bot_quota runs on top of both commands: once a second BotQuotaThink()
+// compares the bot count with what the quota asks for and adds or kicks a
+// single bot to close the gap. One at a time because a kick is queued in the
+// command buffer and doesn't free the slot until after this frame, so adding
+// and kicking in the same pass would race the engine for the same edict.
 //
 // Which slots hold a bot is tracked here rather than read back off
 // pev->flags, because a disconnected player's edict is deliberately left
@@ -58,6 +65,11 @@ static bool g_bBotJumping[MAX_PLAYERS + 1] = {};
 constexpr float BOT_PROGRESS_INTERVAL = 0.3f;
 constexpr float BOT_PROGRESS_DISTANCE = 16.0f;
 constexpr float BOT_JUMP_ATTEMPT_DURATION = 0.5f;
+
+// How often the quota is checked. A pending kick has to have gone through
+// before the next pass counts, and one second is plenty for that.
+constexpr float BOT_QUOTA_INTERVAL = 1.0f;
+static float g_flNextBotQuotaCheck = 0;
 
 static void BotPickNewDirection(int index, CBaseEntity* pPlayer)
 {
@@ -714,19 +726,21 @@ static void BotPickName(char* out, int outSize)
 	out[outSize - 1] = '\0';
 }
 
-static void BotAdd()
+// Connects one fake client under the given name, or a free "BotN" when the
+// name is null or empty. Shared by the "bot" command and the quota.
+static bool BotCreate(const char* pszName)
 {
 	if (!g_pGameRules)
 	{
 		ALERT(at_console, "Can't add a bot: no map loaded\n");
-		return;
+		return false;
 	}
 
 	char name[32];
 
-	if (CMD_ARGC() > 1 && '\0' != *CMD_ARGV(1))
+	if (pszName && '\0' != *pszName)
 	{
-		strncpy(name, CMD_ARGV(1), sizeof(name) - 1);
+		strncpy(name, pszName, sizeof(name) - 1);
 		name[sizeof(name) - 1] = '\0';
 	}
 	else
@@ -739,7 +753,7 @@ static void BotAdd()
 	if (FNullEnt(pEdict))
 	{
 		ALERT(at_console, "Can't add a bot: server is full\n");
-		return;
+		return false;
 	}
 
 	const int index = ENTINDEX(pEdict);
@@ -747,7 +761,7 @@ static void BotAdd()
 	if (index < 1 || index > MAX_PLAYERS)
 	{
 		ALERT(at_console, "Can't add a bot: bad client slot %d\n", index);
-		return;
+		return false;
 	}
 
 	char* infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pEdict);
@@ -764,7 +778,7 @@ static void BotAdd()
 	{
 		ALERT(at_console, "Can't add a bot: %s\n", rejectReason);
 		SERVER_COMMAND(UTIL_VarArgs("kick # %d\n", GETPLAYERUSERID(pEdict)));
-		return;
+		return false;
 	}
 
 	ClientPutInServer(pEdict);
@@ -786,6 +800,23 @@ static void BotAdd()
 	BotHuntReset(index);
 
 	ALERT(at_console, "Added bot \"%s\"\n", name);
+	return true;
+}
+
+static void BotAdd()
+{
+	BotCreate(CMD_ARGC() > 1 ? CMD_ARGV(1) : nullptr);
+}
+
+// Queues a kick for the bot in this slot. kick runs from the command buffer
+// after this frame, so the slot is dropped now: nothing should touch a bot
+// that is on its way out, and the next quota pass must not count it either.
+static void BotKick(int index)
+{
+	g_bIsBot[index] = false;
+	g_szBotName[index][0] = '\0';
+
+	SERVER_COMMAND(UTIL_VarArgs("kick # %d\n", GETPLAYERUSERID(INDEXENT(index))));
 }
 
 static void BotKickAll()
@@ -797,16 +828,90 @@ static void BotKickAll()
 		if (!g_bIsBot[i])
 			continue;
 
-		// kick is queued in the command buffer and runs after this frame, so
-		// drop the slot now: nothing should touch a bot that is on its way out.
-		g_bIsBot[i] = false;
-		g_szBotName[i][0] = '\0';
-
-		SERVER_COMMAND(UTIL_VarArgs("kick # %d\n", GETPLAYERUSERID(INDEXENT(i))));
+		BotKick(i);
 		++kicked;
 	}
 
 	ALERT(at_console, "Kicked %d bot%s\n", kicked, 1 == kicked ? "" : "s");
+}
+
+// Counts the slots with somebody real on the other end. A bot that has just
+// been handed to BotKick() is out of g_bIsBot but still wears FL_FAKECLIENT
+// until the engine drops it, so it lands in neither count - which is the
+// point, since it is leaving either way.
+static int BotCountHumans()
+{
+	int humans = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; ++i)
+	{
+		CBasePlayer* pPlayer = CHalfLifeCrowbarHunt::GetPlayerByIndexPublic(i);
+
+		if (pPlayer && !FBitSet(pPlayer->pev->flags, FL_FAKECLIENT))
+			++humans;
+	}
+
+	return humans;
+}
+
+static int BotCountBots()
+{
+	int bots = 0;
+
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; ++i)
+	{
+		if (g_bIsBot[i])
+			++bots;
+	}
+
+	return bots;
+}
+
+// Brings the bot count one step closer to what bot_quota asks for. "add"
+// wants bot_quota bots outright; "fill" wants bot_quota players in total and
+// makes up the difference with bots, kicking them again as humans arrive.
+// Either way the server's own cap wins - a quota larger than maxplayers just
+// keeps it full.
+static void BotQuotaThink()
+{
+	if (gpGlobals->time < g_flNextBotQuotaCheck)
+		return;
+
+	g_flNextBotQuotaCheck = gpGlobals->time + BOT_QUOTA_INTERVAL;
+
+	const int quota = static_cast<int>(bot_quota.value);
+
+	if (quota <= 0)
+		return;
+
+	const int humans = BotCountHumans();
+	const int bots = BotCountBots();
+	const int maxClients = V_min(gpGlobals->maxClients, MAX_PLAYERS);
+
+	int wanted = quota;
+
+	if (0 == stricmp(bot_quota_mode.string, "fill"))
+		wanted = quota - humans;
+
+	wanted = V_max(0, V_min(wanted, maxClients - humans));
+
+	if (bots < wanted)
+	{
+		BotCreate(nullptr);
+	}
+	else if (bots > wanted)
+	{
+		// Newest bot first, so the ones that have been in the round longest
+		// are the ones that stay.
+		for (int i = maxClients; i >= 1; --i)
+		{
+			if (g_bIsBot[i])
+			{
+				BotKick(i);
+				break;
+			}
+		}
+	}
 }
 
 void InitBotCommands()
@@ -828,6 +933,9 @@ void BotClientDisconnected(edict_t* pEntity)
 
 void BotThink()
 {
+	if (g_pGameRules)
+		BotQuotaThink();
+
 	const float flDelta = gpGlobals->time - g_flLastBotMoveTime;
 
 	g_flLastBotMoveTime = gpGlobals->time;

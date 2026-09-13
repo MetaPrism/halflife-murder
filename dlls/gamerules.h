@@ -173,6 +173,11 @@ public:
 	// can be put back without a level restart. See CBreakable::Die().
 	virtual bool ShouldPreserveBrokenEntities() { return false; }
 
+	// How far the status bar's "player name under the crosshair" trace reaches
+	// for this player. A mode that labels other things the same way can shorten
+	// it so the two labels never draw at once. See CBasePlayer::UpdateStatusBar().
+	virtual float GetIDTargetRange(CBasePlayer* pPlayer); // MAX_ID_RANGE by default
+
 	// Do func_recharge (HEV battery) chargers work at all? A mode that says no
 	// gets them spawned already drained. See CRecharge::Spawn().
 	virtual bool AllowHEVChargers() { return true; }
