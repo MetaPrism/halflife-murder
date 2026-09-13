@@ -246,9 +246,10 @@ static void CH_PrintKillerOdds()
 		// mid-round joiner sitting it out) still has a weight worth seeing.
 		// The real name, not the round's: this is the console, and the whole
 		// point of it is telling the admin who is who.
-		ALERT(at_console, "  %-24s  %5.1f%%  (weight %.2f)%s\n",
+		ALERT(at_console, "  %-24s  %5.1f%%  (weight %.2f)%s%s\n",
 			g_pCrowbarHuntRules->GetRealName(i), flChance, flWeight,
-			flChance > 0.0f ? "" : "  [not in draw]");
+			flChance > 0.0f ? "" : "  [not in draw]",
+			g_pCrowbarHuntRules->IsForcedKiller(i) ? "  [FORCED next round]" : "");
 
 		++shown;
 	}
@@ -1180,10 +1181,25 @@ void CHalfLifeCrowbarHunt::AssignRoles()
 		m_playerRoles[i] = CHRole::Survivor;
 	}
 
+	// An admin's pick from the panel beats the draw, once. It is only honoured
+	// if that player is still in the draw at the deal - sitting out or gone by
+	// now, and the round falls back to the roll rather than to nobody.
+	CBasePlayer* pKiller = nullptr;
+
+	if (m_iForcedKiller != 0)
+	{
+		if (IsKillerCandidate(m_iForcedKiller))
+			pKiller = GetPlayerByIndex(m_iForcedKiller);
+
+		m_iForcedKiller = 0;
+	}
+
 	// Weighted, not flat: whoever was Killer recently is drawn less often, so
 	// the role moves around the server instead of landing on the same player
 	// three rounds running. See AgeKillerWeights() for the bookkeeping.
-	CBasePlayer* pKiller = PickWeightedKiller();
+	if (!pKiller)
+		pKiller = PickWeightedKiller();
+
 	if (pKiller)
 		SetPlayerRole(pKiller, CHRole::Killer);
 
@@ -1755,6 +1771,11 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_flKillerWeight[index] = 1.0f;
 
 	m_bAdmin[index] = false;
+
+	// A force names a player, not a seat; whoever takes this slot next did
+	// not ask to be the Killer.
+	if (m_iForcedKiller == index)
+		m_iForcedKiller = 0;
 
 	m_anonColor[index] = -1;
 	m_szAnonName[index][0] = '\0';
@@ -2516,6 +2537,27 @@ bool CHalfLifeCrowbarHunt::ClientCommand(CBasePlayer* pPlayer, const char* pcmd)
 		return true;
 	}
 
+	// "ch_forcekiller <slot>" - the panel's Force button. Admins only, the
+	// same test as the table itself; the fresh table goes straight back so
+	// the panel shows the change without waiting for its next refresh.
+	if (FStrEq(pcmd, "ch_forcekiller"))
+	{
+		const int index = ENTINDEX(pPlayer->edict());
+
+		if (index < 1 || index > MAX_PLAYERS)
+			return true;
+
+		if (!IsAdmin(index))
+		{
+			ClientPrint(pPlayer->pev, HUD_PRINTCONSOLE, "ch_forcekiller: admins only\n");
+			return true;
+		}
+
+		HandleForceKiller(pPlayer, CMD_ARGC() >= 2 ? atoi(CMD_ARGV(1)) : 0);
+		SendKillerOdds(pPlayer);
+		return true;
+	}
+
 	if (!FStrEq(pcmd, "menuselect"))
 		return false;
 
@@ -2715,6 +2757,9 @@ void CHalfLifeCrowbarHunt::SendKillerOdds(CBasePlayer* pPlayer) const
 		if (m_bDisguised[i])
 			flags |= 2;
 
+		if (m_iForcedKiller == i)
+			flags |= 4;
+
 		// The real name, as ch_odds prints, next to the name the room sees
 		// (netname is whatever anonymous mode or a disguise dealt) and the
 		// role. The admin's whole question under anonymous mode is who is who,
@@ -2735,6 +2780,44 @@ void CHalfLifeCrowbarHunt::SendKillerOdds(CBasePlayer* pPlayer) const
 	WRITE_SHORT(static_cast<int>(V_max(0.0f, ch_killer_decay.value) * 100.0f + 0.5f));
 	WRITE_SHORT(static_cast<int>(V_max(0.0f, ch_killer_recover.value) * 100.0f + 0.5f));
 	MESSAGE_END();
+}
+
+void CHalfLifeCrowbarHunt::HandleForceKiller(CBasePlayer* pAdmin, int slot)
+{
+	char sz[128];
+
+	// 0, or the slot already named, is "never mind".
+	if (slot <= 0 || slot == m_iForcedKiller)
+	{
+		if (m_iForcedKiller != 0)
+			ClientPrint(pAdmin->pev, HUD_PRINTCONSOLE, "ch_forcekiller: cleared, next Killer is drawn as normal\n");
+
+		m_iForcedKiller = 0;
+		return;
+	}
+
+	CBasePlayer* pTarget = slot <= MAX_PLAYERS ? GetPlayerByIndex(slot) : nullptr;
+
+	if (!pTarget)
+	{
+		ClientPrint(pAdmin->pev, HUD_PRINTCONSOLE, "ch_forcekiller: no such player\n");
+		return;
+	}
+
+	// A spectator would be skipped at the deal anyway; say so now rather than
+	// let the admin think it took.
+	if (IsSittingOut(slot))
+	{
+		sprintf(sz, "ch_forcekiller: %s is sitting out\n", GetRealName(slot));
+		ClientPrint(pAdmin->pev, HUD_PRINTCONSOLE, sz);
+		return;
+	}
+
+	m_iForcedKiller = slot;
+
+	// The real name: this is the admin's console, the one place it belongs.
+	sprintf(sz, "ch_forcekiller: %s will be the Killer next round\n", GetRealName(slot));
+	ClientPrint(pAdmin->pev, HUD_PRINTCONSOLE, sz);
 }
 
 CBasePlayer* CHalfLifeCrowbarHunt::PickWeightedKiller() const

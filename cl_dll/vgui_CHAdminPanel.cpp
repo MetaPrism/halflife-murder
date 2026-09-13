@@ -24,9 +24,9 @@
 #include "vgui_TeamFortressViewport.h"
 #include "vgui_CHAdminPanel.h"
 
-#define ADMIN_WINDOW_X XRES(40)
+#define ADMIN_WINDOW_X XRES(20)
 #define ADMIN_WINDOW_Y YRES(56)
-#define ADMIN_WINDOW_SIZE_X XRES(560)
+#define ADMIN_WINDOW_SIZE_X XRES(600)
 #define ADMIN_WINDOW_SIZE_Y YRES(368)
 
 #define ADMIN_MARGIN_X XRES(16)
@@ -34,7 +34,8 @@
 #define ADMIN_SUBTITLE_Y YRES(36)
 #define ADMIN_HEADER_Y YRES(60)
 #define ADMIN_LIST_Y YRES(80)
-#define ADMIN_ROW_H YRES(14)
+#define ADMIN_ROW_H YRES(18) // tall enough for a button, not just a label
+#define ADMIN_FORCE_BUTTON_H YRES(16)
 
 // Column x offsets and widths, relative to the window's inner edge, in
 // header/cell order: real name, name currently shown, role, weight, chance.
@@ -44,12 +45,16 @@ static const struct
 	int x, w;
 	Label::Alignment align;
 } g_AdminColumns[] = {
-	{"Player", 0, 150, Label::a_west},
-	{"Shown as", 156, 150, Label::a_west},
-	{"Role", 312, 90, Label::a_west},
-	{"Weight", 400, 50, Label::a_east},
-	{"Chance", 456, 56, Label::a_east},
+	{"Player", 0, 136, Label::a_west},
+	{"Shown as", 140, 136, Label::a_west},
+	{"Role", 280, 90, Label::a_west},
+	{"Weight", 372, 44, Label::a_east},
+	{"Chance", 420, 50, Label::a_east},
 };
+
+// The Force button column, past the labels and clear of the scrollbar.
+#define ADMIN_FORCE_X 480
+#define ADMIN_FORCE_W 64
 
 static const char* const g_pszAdminRoleNames[] = {"-", "Spectator", "Killer", "Hunter", "Survivor"};
 
@@ -65,6 +70,23 @@ public:
 	{
 		gEngfuncs.pfnClientCmd("ch_adminpanel\n");
 	}
+};
+
+// One row's Force button. Rows are re-sorted on every table, so the handler
+// remembers the row, not the player, and asks the panel who is there now.
+class CCHAdminForceHandler : public ActionSignal
+{
+public:
+	CCHAdminForceHandler(CCHAdminPanel* pPanel, int row) : m_pPanel(pPanel), m_iRow(row) {}
+
+	void actionPerformed(Panel* panel) override
+	{
+		m_pPanel->ForceRow(m_iRow);
+	}
+
+private:
+	CCHAdminPanel* m_pPanel;
+	int m_iRow;
 };
 
 static Label* CreateCell(Panel* pParent, Font* pFont, int r, int g, int b, int a, int x, int y, int wide, int tall, Label::Alignment align)
@@ -134,6 +156,9 @@ CCHAdminPanel::CCHAdminPanel(int x, int y, int wide, int tall) : CMenuPanel(100,
 		m_pHeader[c]->setText(g_AdminColumns[c].pszHeader);
 	}
 
+	m_pForceHeader = CreateCell(this, pTextFont, r, g, b, a, iInnerX + XRES(ADMIN_FORCE_X), iYPos + ADMIN_HEADER_Y, XRES(ADMIN_FORCE_W), ADMIN_ROW_H, vgui::Label::a_center);
+	m_pForceHeader->setText("Next");
+
 	// The rows scroll; thirty-two of them do not fit under the header at
 	// 640x480, and a scoreboard-style list is what an admin expects anyway.
 	const int iListTall = iYSize - ADMIN_LIST_Y - YRES(24) - BUTTON_SIZE_Y;
@@ -155,6 +180,11 @@ CCHAdminPanel::CCHAdminPanel(int x, int y, int wide, int tall) : CMenuPanel(100,
 			m_pCells[i][c] = CreateCell(m_pList, pTextFont, r, g, b, a, XRES(g_AdminColumns[c].x), iRowY, XRES(g_AdminColumns[c].w), ADMIN_ROW_H, g_AdminColumns[c].align);
 			m_pCells[i][c]->setVisible(false);
 		}
+
+		m_pForce[i] = new CommandButton("Force", XRES(ADMIN_FORCE_X), iRowY + (ADMIN_ROW_H - ADMIN_FORCE_BUTTON_H) / 2, XRES(ADMIN_FORCE_W), ADMIN_FORCE_BUTTON_H);
+		m_pForce[i]->setParent(m_pList);
+		m_pForce[i]->addActionSignal(new CCHAdminForceHandler(this, i));
+		m_pForce[i]->setVisible(false);
 	}
 
 	m_pEmpty = CreateCell(m_pList, pTextFont, r, g, b, a, 0, 0, iInnerW, ADMIN_ROW_H, vgui::Label::a_west);
@@ -225,9 +255,27 @@ void CCHAdminPanel::EndTable(float flDecay, float flRecover)
 
 void CCHAdminPanel::Refresh()
 {
-	char sz[64];
+	char sz[96];
 
-	if (m_flDecay >= 1.0f)
+	// A forced pick is the one thing that changes what the table means, so
+	// it takes the subtitle over the cvar summary while it stands.
+	const Row* pForced = nullptr;
+
+	for (int i = 0; i < m_iRowCount; i++)
+	{
+		if (m_Rows[i].bForced)
+		{
+			pForced = &m_Rows[i];
+			break;
+		}
+	}
+
+	if (pForced)
+	{
+		sprintf(sz, "Next round's Killer: %s (forced - press Forced to clear)", pForced->szName);
+		m_pSubtitle->setText(sz);
+	}
+	else if (m_flDecay >= 1.0f)
 		m_pSubtitle->setText("Flat draw - ch_killer_decay is 1");
 	else
 	{
@@ -241,6 +289,8 @@ void CCHAdminPanel::Refresh()
 
 		for (Label* pCell : m_pCells[i])
 			pCell->setVisible(bShown);
+
+		m_pForce[i]->setVisible(bShown);
 
 		if (!bShown)
 			continue;
@@ -288,6 +338,12 @@ void CCHAdminPanel::Refresh()
 		else
 			strcpy(sz, "out");
 		m_pCells[i][4]->setText(sz);
+
+		// Spectators cannot be forced - the server would refuse - so their
+		// button goes away rather than lying about it. Everyone else's reads
+		// as the action it will take.
+		m_pForce[i]->setVisible(row.iRole != 1);
+		m_pForce[i]->setText(row.bForced ? "Forced" : "Force");
 	}
 
 	m_pEmpty->setVisible(m_iRowCount == 0);
@@ -299,6 +355,16 @@ void CCHAdminPanel::Refresh()
 	m_pScroll->validate();
 
 	repaint();
+}
+
+void CCHAdminPanel::ForceRow(int row)
+{
+	if (row < 0 || row >= m_iRowCount)
+		return;
+
+	char sz[32];
+	sprintf(sz, "ch_forcekiller %d\n", m_Rows[row].iSlot);
+	gEngfuncs.pfnClientCmd(sz);
 }
 
 void CCHAdminPanel::Open()

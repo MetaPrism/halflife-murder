@@ -2127,6 +2127,7 @@ bool TeamFortressViewport::MsgFunc_CHAdmin(const char* pszName, int iSize, void*
 	row.flChance = READ_SHORT() / 10.0f;
 	row.bInDraw = (flags & 1) != 0;
 	row.bDisguised = (flags & 2) != 0;
+	row.bForced = (flags & 4) != 0;
 	strncpy(row.szName, READ_STRING(), sizeof(row.szName));
 	row.szName[sizeof(row.szName) - 1] = '\0';
 	strncpy(row.szShownName, READ_STRING(), sizeof(row.szShownName));

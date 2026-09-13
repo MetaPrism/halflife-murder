@@ -224,6 +224,9 @@ public:
 	// or anyone who has given ch_admin_pass this connection. Never bots.
 	bool IsAdmin(int index) const;
 
+	// Has an admin named this slot as next round's Killer?
+	bool IsForcedKiller(int index) const { return index != 0 && index == m_iForcedKiller; }
+
 	// A player walked into a piece of loot. Returns false to leave it lying
 	// there: outside a live round, or for anyone not playing this round.
 	bool CollectLoot(CBasePlayer* pPlayer);
@@ -331,6 +334,10 @@ private:
 	// Push the whole odds table to one client for its admin panel: a CHAdmin
 	// message per connected player, then the terminator. See UserMessages.h.
 	void SendKillerOdds(CBasePlayer* pPlayer) const;
+
+	// "ch_forcekiller <slot>" from an admin's panel: name next round's Killer
+	// outright, skipping the draw. The same slot again, or 0, clears it.
+	void HandleForceKiller(CBasePlayer* pAdmin, int slot);
 
 	// --- role management ---
 	void   AssignRoles();
@@ -479,6 +486,11 @@ private:
 	// Whether each slot has proven itself an admin - connected from the listen
 	// server's own machine, or typed ch_admin_pass once. Cleared with the slot.
 	bool m_bAdmin[MAX_PLAYERS + 1];
+
+	// The slot an admin has named as next round's Killer, or 0 for none. One
+	// value, not a slot array: there is only ever one next Killer. Spent by the
+	// deal that honours it, and dropped if that player leaves first.
+	int m_iForcedKiller = 0;
 
 	// gpGlobals->time to send each player the scoreboard title, or 0 for nothing
 	// pending. Same indexing as m_playerRoles.

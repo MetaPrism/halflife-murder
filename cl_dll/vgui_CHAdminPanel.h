@@ -25,6 +25,7 @@ public:
 		float flChance; // percent; 0 when not in the draw
 		bool bInDraw;
 		bool bDisguised;
+		bool bForced; // an admin has named them next round's Killer
 	};
 
 	CCHAdminPanel(int x, int y, int wide, int tall);
@@ -38,6 +39,11 @@ public:
 
 	void Open() override;
 	void paint() override;
+
+	// A row's Force button: ask the server to make that row's player next
+	// round's Killer, or to clear it if they already are. The reply is a
+	// fresh table, which is how the button's label finds out.
+	void ForceRow(int row);
 
 private:
 	// Repaint every label from m_Rows.
@@ -65,9 +71,11 @@ private:
 	static constexpr int NUM_COLS = 5; // player, shown as, role, weight, chance
 
 	vgui::Label* m_pHeader[NUM_COLS] = {};
+	vgui::Label* m_pForceHeader = nullptr;
 	vgui::ScrollPanel* m_pScroll = nullptr;
 	vgui::Panel* m_pList = nullptr;
 	vgui::Label* m_pCells[MAX_ROWS][NUM_COLS] = {};
+	CommandButton* m_pForce[MAX_ROWS] = {};
 
 	// The scheme's text colour, to put a row back to after it stops being the Killer's.
 	int m_iTextColor[4] = {};

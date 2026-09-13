@@ -88,7 +88,8 @@ inline int gmsgSpectator = 0;
 inline int gmsgCHProxVoice = 0;
 
 // Crowbar Hunt admin odds panel: one message per connected player - slot,
-// flags (bit 0: in the draw right now, bit 1: wearing a disguise), weight
+// flags (bit 0: in the draw right now, bit 1: wearing a disguise, bit 2:
+// an admin has forced them as next round's Killer), weight
 // x1000, chance x10 (both shorts), real name, the name they are currently
 // showing as, role (CHRole as a byte) - then a slot-0 terminator carrying
 // ch_killer_decay and ch_killer_recover x100. Split per row because a user
