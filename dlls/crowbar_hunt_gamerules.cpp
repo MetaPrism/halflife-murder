@@ -63,14 +63,14 @@ constexpr float CH_KILLER_FOG_NOTICE_INTERVAL = 4.0f;
 // CH_KILLER_FOG_PUFF_ALPHA and fades to nothing over CH_KILLER_FOG_PUFF_LIFE
 // seconds, growing from CH_KILLER_FOG_PUFF_SCALE as it goes, so a Killer at
 // full sprint trails on the order of fifty puffs at once.
-constexpr const char* CH_KILLER_FOG_SPRITE        = "sprites/ballsmoke.spr";
+constexpr const char* CH_KILLER_FOG_SPRITE        = "sprites/steam1.spr";
 constexpr float       CH_KILLER_FOG_PUFF_SPACING  = 40.0f;
 constexpr float       CH_KILLER_FOG_IDLE_INTERVAL = 2.0f;
 constexpr float       CH_KILLER_FOG_PUFF_LIFE     = 18.0f;
 constexpr float       CH_KILLER_FOG_PUFF_ALPHA    = 190.0f;
 constexpr float       CH_KILLER_FOG_PUFF_SCALE    = 0.45f;
 constexpr float       CH_KILLER_FOG_PUFF_GROWTH   = 0.03f; // scale per second
-constexpr float       CH_KILLER_FOG_PUFF_FPS      = 7.0f;  // sprite animation, looped
+constexpr float       CH_KILLER_FOG_PUFF_FPS      = 3.0f;  // sprite animation, looped
 
 // Each puff is scattered a little around its spawn point, so a Killer walking
 // a straight line (or standing still) does not leave a row of identical puffs
@@ -147,6 +147,15 @@ const char* const g_szResettableClassnames[] = {
 constexpr float CH_FOOTSTEP_SPREAD      = 6.0f;
 constexpr float CH_FOOTSTEP_TRACE_DEPTH = 72.0f;
 constexpr float CH_FOOTSTEP_LIFT        = 1.0f;
+
+// A print only lands if the player has moved at least this far (horizontally)
+// from where their last one went down. iStepLeft keeps flipping while a
+// player pushes against a wall - pm_shared times its step sounds off the
+// pre-clip velocity - and the ground flag flickers when a crouched player
+// bumps a ledge just above step height, so without this both stack prints on
+// one spot. Well under a stride, so it never skips a step that did go
+// somewhere.
+constexpr float CH_FOOTSTEP_MIN_STRIDE = 12.0f;
 
 // Leftovers from the previous round: gibs, dropped weapon bags, live ordnance
 // and in-flight projectiles.
@@ -1936,6 +1945,8 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 
 	m_iLastStepLeft[index] = -1;
 	m_bWasOnGround[index]  = false;
+	m_iLastFoot[index]     = 2;
+	m_vecLastFootprint[index] = Vector(0.0f, 0.0f, 0.0f);
 }
 
 // Wiped at both ends of an occupancy rather than just on the way out, so a slot
@@ -2430,24 +2441,19 @@ void CHalfLifeCrowbarHunt::ServiceFootsteps(CBasePlayer* pPlayer)
 	if (pPlayer->pev->movetype == MOVETYPE_FLY || pPlayer->pev->waterlevel >= 2)
 		return;
 
-	// Landing, and the push-off of a jump. Both feet, since both are down
-	// for either. The takeoff check wants upward velocity so a player who
-	// simply walks off a ledge does not leave a pair at the edge.
+	// Landing, or the push-off of a jump. One print each, taking the next
+	// foot in the cycle, so a jump reads as a step that went further rather
+	// than a stamp. The takeoff check wants upward velocity so a player who
+	// simply walks off a ledge does not leave a print at the edge.
 	if (bOnGround != bWasOnGround)
 	{
 		if (bOnGround || pPlayer->pev->velocity.z > 0.0f)
-			LeaveFootprintPair(pPlayer);
+			LeaveFootprint(pPlayer);
 		return;
 	}
 
 	if (bOnGround && iStepLeft != iLastStepLeft)
-		LeaveFootprint(pPlayer, iStepLeft != 0 ? 1 : 2);
-}
-
-void CHalfLifeCrowbarHunt::LeaveFootprintPair(CBasePlayer* pPlayer)
-{
-	LeaveFootprint(pPlayer, 1);
-	LeaveFootprint(pPlayer, 2);
+		LeaveFootprint(pPlayer);
 }
 
 namespace
@@ -2478,8 +2484,23 @@ void CH_HueByteToRGB(int hue, int& r, int& g, int& b)
 }
 } // namespace
 
-void CHalfLifeCrowbarHunt::LeaveFootprint(CBasePlayer* pPlayer, int iFoot)
+void CHalfLifeCrowbarHunt::LeaveFootprint(CBasePlayer* pPlayer)
 {
+	const int index = ENTINDEX(pPlayer->edict());
+
+	// Still standing where the last print went down: pushing a wall, or
+	// caught on a bump. Nothing new to show.
+	const Vector vecMoved = pPlayer->pev->origin - m_vecLastFootprint[index];
+	if (vecMoved.Make2D().Length() < CH_FOOTSTEP_MIN_STRIDE)
+		return;
+
+	m_vecLastFootprint[index] = pPlayer->pev->origin;
+
+	// Alternate feet from whatever went down last, whether that was a step,
+	// a jump or a landing.
+	const int iFoot = m_iLastFoot[index] == 1 ? 2 : 1;
+	m_iLastFoot[index] = iFoot;
+
 	CBasePlayer* pKiller = GetKiller();
 
 	// Nobody to see it. A bot Killer has no screen to draw on either.

@@ -31,7 +31,7 @@ DECLARE_MESSAGE(m_CHFootsteps, CHFootstep)
 
 extern Vector v_origin;
 
-constexpr const char* CH_FOOTSTEP_SPRITE = "sprites/ch_footstep.spr";
+constexpr const char* CH_FOOTSTEP_SPRITE = "sprites/arrow1.spr";
 
 // Prints fully in view out to CH_FOOTSTEP_FADE_DISTANCE, fading to nothing at
 // CH_FOOTSTEP_VIEW_DISTANCE so the edge of what the Killer can see is soft.

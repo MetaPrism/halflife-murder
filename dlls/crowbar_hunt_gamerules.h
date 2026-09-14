@@ -312,16 +312,17 @@ private:
 	// --- footsteps ---
 	// Every step, jump and landing during a live round leaves a print in the
 	// player's own colour that only the Killer sees, for ch_footsteps seconds.
+	// Feet alternate across all three, and a print only lands once the player
+	// has actually moved on from the last one.
 	// The prints live on the Killer's client; the server only reports them.
 
 	// Per-frame, from PlayerThink(): watch the player's movement state for a
 	// step or a ground transition and report it to the Killer.
 	void ServiceFootsteps(CBasePlayer* pPlayer);
 
-	// Drop one print under the player, iFoot as in gmsgCHFootstep (1 left,
-	// 2 right), and one for each foot for a landing or a takeoff.
-	void LeaveFootprint(CBasePlayer* pPlayer, int iFoot);
-	void LeaveFootprintPair(CBasePlayer* pPlayer);
+	// Drop one print under the player with the next foot in their cycle,
+	// unless they are still where the last one went down.
+	void LeaveFootprint(CBasePlayer* pPlayer);
 
 	// Tell every client to forget the prints it holds: the round is over,
 	// and the next Killer must not inherit them.
@@ -540,6 +541,12 @@ private:
 	// yet", so a fresh slot syncs on its first frame instead of printing.
 	int  m_iLastStepLeft[MAX_PLAYERS + 1];
 	bool m_bWasOnGround[MAX_PLAYERS + 1];
+
+	// Which foot printed last (as in gmsgCHFootstep, 1 left / 2 right) and
+	// where, so the next print alternates and a player going nowhere leaves
+	// nothing.
+	int    m_iLastFoot[MAX_PLAYERS + 1];
+	Vector m_vecLastFootprint[MAX_PLAYERS + 1];
 	void SendRoleHud(CBasePlayer* pPlayer) const;
 
 	// role assigned to each possible player slot, indexed by ENTINDEX() (1..MAX_PLAYERS)
