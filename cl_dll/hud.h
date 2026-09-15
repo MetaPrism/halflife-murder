@@ -509,6 +509,7 @@ private:
 	struct CHFootprint
 	{
 		Vector origin;
+		Vector normal; // of the floor it lies on
 		float  yaw;
 		float  rgb[3];
 		bool   bRight;

@@ -110,6 +110,9 @@ bool CHudCHFootsteps::MsgFunc_CHFootstep(const char* pszName, int iSize, void* p
 	print.origin.y = READ_COORD();
 	print.origin.z = READ_COORD();
 	print.yaw = READ_ANGLE();
+	print.normal.x = READ_CHAR() / 127.0f;
+	print.normal.y = READ_CHAR() / 127.0f;
+	print.normal.z = READ_CHAR() / 127.0f;
 	print.rgb[0] = READ_BYTE() / 255.0f;
 	print.rgb[1] = READ_BYTE() / 255.0f;
 	print.rgb[2] = READ_BYTE() / 255.0f;
@@ -198,11 +201,34 @@ void CHudCHFootsteps::DrawTriangles()
 		if (flAlpha <= 0.0f)
 			continue;
 
-		// The quad lies flat, its top edge toward the yaw the player was
-		// facing. right is yaw swung 90 degrees clockwise, seen from above.
+		// The quad lies in the plane of the floor, its top edge toward the
+		// yaw the player was facing: the flat facing direction dropped into
+		// the plane, so on a slope the print tilts with it. right is forward
+		// swung 90 degrees clockwise, seen from above (forward x normal).
 		const float flYaw = print.yaw * (M_PI / 180.0f);
-		const Vector vecForward(cosf(flYaw), sinf(flYaw), 0.0f);
-		const Vector vecRight(sinf(flYaw), -cosf(flYaw), 0.0f);
+		Vector vecForward(cosf(flYaw), sinf(flYaw), 0.0f);
+		Vector vecNormal = print.normal;
+
+		// A normal that never made it, or a face too steep for the facing
+		// to lie in: fall back to a flat print rather than a sliver.
+		if (vecNormal.Length() < 0.5f)
+			vecNormal = Vector(0.0f, 0.0f, 1.0f);
+		else
+			vecNormal = vecNormal.Normalize();
+
+		vecForward = vecForward - vecNormal * DotProduct(vecForward, vecNormal);
+
+		if (vecForward.Length() < 0.1f)
+		{
+			vecNormal = Vector(0.0f, 0.0f, 1.0f);
+			vecForward = Vector(cosf(flYaw), sinf(flYaw), 0.0f);
+		}
+		else
+		{
+			vecForward = vecForward.Normalize();
+		}
+
+		const Vector vecRight = CrossProduct(vecForward, vecNormal);
 
 		const Vector vecTop = print.origin + vecForward * flHalf;
 		const Vector vecBottom = print.origin - vecForward * flHalf;

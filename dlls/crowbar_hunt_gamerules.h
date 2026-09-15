@@ -547,7 +547,7 @@ private:
 	// up, or 0 when there is nothing pending; the text is whatever EndRound()
 	// was given. See AnnounceRoundOver().
 	float m_flRoundOverAnnounceTime;
-	char  m_szRoundOverMessage[128];
+	char  m_szRoundOverMessage[192]; // result line plus the Killer reveal, two names wide
 
 	// gpGlobals->time the live round is called for the Survivors, from
 	// ch_round_time. 0 while no clock is running - outside InProgress, or when

@@ -752,6 +752,31 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole, const char* pszMessage)
 	strncpy(m_szRoundOverMessage, pszMessage ? pszMessage : msg, sizeof(m_szRoundOverMessage) - 1);
 	m_szRoundOverMessage[sizeof(m_szRoundOverMessage) - 1] = '\0';
 
+	// The reveal: who the Killer really was, with the name they wore this
+	// round alongside it when anonymous mode had them under another one. A
+	// Killer who quit mid-round has had their slot wiped by then, so there
+	// is nobody to name; the result stands on its own.
+	if (CBasePlayer* pKiller = GetKiller(); pKiller != nullptr)
+	{
+		const int   index    = ENTINDEX(pKiller->edict());
+		const char* realName = GetRealName(index);
+		const char* anonName = m_bAnonActive ? m_szAnonName[index] : "";
+
+		if (realName[0] != '\0')
+		{
+			size_t len = strlen(m_szRoundOverMessage);
+			while (len > 0 && m_szRoundOverMessage[len - 1] == '\n')
+				m_szRoundOverMessage[--len] = '\0';
+
+			const size_t room = sizeof(m_szRoundOverMessage) - len;
+
+			if (anonName[0] != '\0' && strcmp(anonName, realName) != 0)
+				snprintf(m_szRoundOverMessage + len, room, "\nThe Killer was %s (%s).", realName, anonName);
+			else
+				snprintf(m_szRoundOverMessage + len, room, "\nThe Killer was %s.", realName);
+		}
+	}
+
 	// After SetRoundState(), which clears any pending announcement.
 	m_flRoundOverAnnounceTime = gpGlobals->time + CH_ROUND_OVER_DELAY;
 }
@@ -2581,7 +2606,10 @@ void CHalfLifeCrowbarHunt::LeaveFootprint(CBasePlayer* pPlayer)
 	if (tr.flFraction >= 1.0f)
 		return;
 
-	const Vector vecPrint = tr.vecEndPos + Vector(0.0f, 0.0f, CH_FOOTSTEP_LIFT);
+	// Lift off the surface along its normal, not straight up, so a print on
+	// a slope keeps a constant gap from the floor.
+	const Vector vecNormal = tr.vecPlaneNormal;
+	const Vector vecPrint = tr.vecEndPos + vecNormal * CH_FOOTSTEP_LIFT;
 
 	// The colour the player is painted right now - topcolor is what the
 	// studio renderer remaps the model from, whoever set it.
@@ -2595,6 +2623,10 @@ void CHalfLifeCrowbarHunt::LeaveFootprint(CBasePlayer* pPlayer)
 	WRITE_COORD(vecPrint.y);
 	WRITE_COORD(vecPrint.z);
 	WRITE_ANGLE(yaw);
+	// The floor's normal, so the client can lay the print in the slope.
+	WRITE_CHAR(static_cast<int>(vecNormal.x * 127.0f));
+	WRITE_CHAR(static_cast<int>(vecNormal.y * 127.0f));
+	WRITE_CHAR(static_cast<int>(vecNormal.z * 127.0f));
 	WRITE_BYTE(r);
 	WRITE_BYTE(g);
 	WRITE_BYTE(b);
