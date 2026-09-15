@@ -48,7 +48,7 @@ constexpr float CH_FOOTSTEP_FADE_IN   = 0.25f;
 constexpr float CH_FOOTSTEP_SIZE  = 14.0f;
 constexpr float CH_FOOTSTEP_ALPHA = 0.85f;
 
-constexpr int CH_FOOTSTEP_RENDERMODE = kRenderTransAdd;
+constexpr int CH_FOOTSTEP_RENDERMODE = kRenderTransAlpha;
 
 bool CHudCHFootsteps::Init()
 {

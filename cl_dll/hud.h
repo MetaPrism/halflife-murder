@@ -481,6 +481,7 @@ private:
 	char m_szRealName[MAX_PLAYER_NAME_LENGTH]; // empty draws nothing
 	char m_szAnonName[MAX_PLAYER_NAME_LENGTH]; // empty: no parenthetical
 	int m_iAnonColor;                          // g_CHAnonColors index for the anon name, or -1
+	float m_flStartTime;                       // gHUD.m_flTime the reveal began typing out
 	float m_flEndTime;                         // gHUD.m_flTime the reveal is gone
 };
 
