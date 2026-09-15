@@ -55,6 +55,23 @@ enum class CHRole
 // Comfortably above what a Half-Life deathmatch map uses.
 #define CH_MAX_TRACKED_ENTITIES 512
 
+// Extra spawn points a map can supply in maps/<map>_spawns.txt, one "x y z
+// [yaw]" per line. They join the map's own info_player_* entities as
+// candidates - see GetPlayerSpawnSpot().
+#define CH_MAX_FILE_SPAWNS 64
+
+// How far apart, in units, the Killer and the Hunter are kept at spawn time
+// when the map leaves any choice in the matter.
+#define CH_ROLE_SPAWN_SEPARATION 512.0f
+
+// One place a player can be put at spawn time.
+struct CHSpawnPoint
+{
+	Vector   origin;
+	Vector   angles;
+	edict_t* pent; // the info_player_* it came from, or null for a file entry
+};
+
 // Spawn-time state of one resettable map entity (breakable, door, button), so
 // a round reset can put it back without reloading the level.
 struct CHEntitySnapshot
@@ -98,6 +115,11 @@ public:
 	void        Think() override;
 	void        PlayerSpawn(CBasePlayer* pPlayer) override;
 	void        PlayerThink(CBasePlayer* pPlayer) override;
+
+	// The stock picker telefrags whoever is standing on a spawn point once the
+	// map runs out of free ones. This one keeps looking - see the comment on
+	// the implementation.
+	edict_t*    GetPlayerSpawnSpot(CBasePlayer* pPlayer) override;
 
 	// CHalfLifeMultiplay hardcodes deathmatch damage over whatever skill.cfg
 	// says, so this mode has to have the last word on its two weapons.
@@ -456,6 +478,21 @@ private:
 	void ForceRespawnDeadPlayers() const;
 	void MoveDeadPlayersToObserver() const;
 
+	// --- spawn placement ---
+	// Collect every candidate spawn on the map into pTable, shuffled. Returns
+	// the count.
+	int  GatherSpawnPoints(CHSpawnPoint* pTable, int maxCount) const;
+	// Is there room for a player hull at this origin, with no other player
+	// within "playerRadius" units? pPlayer themself does not count.
+	static bool IsSpawnPositionClear(CBasePlayer* pPlayer, const Vector& vecOrigin, float playerRadius);
+	// Look for a clear spot on the ground near a taken spawn point.
+	static bool FindSpawnPositionNear(CBasePlayer* pPlayer, const CHSpawnPoint& spot, Vector& vecOut);
+	// Where this player's role would rather not spawn next to: the Hunter
+	// keeps away from the Killer and vice versa. False if there is no such
+	// player on the map right now.
+	bool GetSpawnAvoidOrigin(CBasePlayer* pPlayer, Vector& vecOut) const;
+	void LoadSpawnFile();
+
 	// Park a player who is not taking part in observer mode: an alive, roleless
 	// player in a live round (a mid-round joiner), or anyone who asked to sit
 	// out. Deferred out of PlayerSpawn(), which runs too early for the spectator
@@ -633,6 +670,10 @@ private:
 	CHEntitySnapshot m_mapSnapshot[CH_MAX_TRACKED_ENTITIES];
 	int              m_numSnapshots;
 	bool             m_bSnapshotTaken;
+
+	// Extra spawn points from maps/<map>_spawns.txt, loaded by the constructor.
+	CHSpawnPoint m_fileSpawns[CH_MAX_FILE_SPAWNS];
+	int          m_numFileSpawns;
 
 	// Where loot may appear on this map. Filled from the loot file by the
 	// constructor, then replaced by the map's own markers if it has any - see

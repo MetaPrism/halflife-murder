@@ -337,7 +337,7 @@ void CCHAdminPanel::Refresh()
 			sprintf(sz, "%.1f%%", row.flChance);
 		else
 			strcpy(sz, "out");
-		m_pCells[i][4]->setText(sz);
+		m_pCells[i][4]->setText("%s", sz);
 
 		// Spectators cannot be forced - the server would refuse - so their
 		// button goes away rather than lying about it. Everyone else's reads

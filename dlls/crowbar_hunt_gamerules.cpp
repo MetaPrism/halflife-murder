@@ -492,6 +492,7 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	// From here, inside CWorld::Precache(), so the file's models can still be
 	// precached. The map's own markers are picked up later - see Think().
 	m_numLootSpawns       = CH_LoadLootFile(m_lootSpawns, CH_MAX_LOOT_SPAWNS);
+	LoadSpawnFile();
 	m_bLootSpawnsResolved = false;
 	m_flNextLootSpawn     = 0.0f;
 	m_bGrantingKillerGun  = false;
@@ -3526,6 +3527,350 @@ void CHalfLifeCrowbarHunt::ForceRespawn(CBasePlayer* pPlayer) const
 	pPlayer->ForceClientDllUpdate();
 }
 
+// ---------------------------------------------------------------------------
+// Spawn placement
+//
+// EntSelectSpawnPoint() walks the map's info_player_deathmatch entities and,
+// when every one of them has a player within 128 units, "telefrags" whoever is
+// standing on the first one with 300 damage and spawns there anyway. That is
+// tolerable in deathmatch, where a spawn is a one-at-a-time event and the
+// victim respawns a moment later. Here StartPreRound() puts the whole server
+// on spawn points in one tick, so on a map with fewer points than players the
+// overflow are guaranteed to be killed before the round has even begun - and
+// PlayerKilled() counts those as real deaths.
+//
+// So placement is done here instead, and it never kills anyone. The candidate
+// list is every info_player_deathmatch, info_player_start and info_player_coop
+// on the map plus anything in maps/<map>_spawns.txt, shuffled. The first clear
+// one wins; a spot counts as clear when a player hull fits there and no other
+// player is within 128 units, which also catches a spot inside a door or a
+// crate the map reset put back. If none is clear, a ring of positions around
+// each spot is probed for a patch of floor with room for a hull and a clear
+// line back to the spot, so the overflow ends up standing next to a spawn
+// point rather than inside another player. Only when that finds nothing too
+// does it fall through to the stock picker.
+//
+// The same pass keeps the Killer and the Hunter apart: whichever of the two is
+// placed second prefers candidates at least CH_ROLE_SPAWN_SEPARATION from the
+// other, and only settles for closer ones when the map has nothing else.
+// ForceRespawnAllPlayers() places the Killer first so that the Hunter is the
+// one doing the avoiding, against a position that is current.
+// ---------------------------------------------------------------------------
+
+// Every info_player_* a map can reasonably have, plus the file's entries.
+#define CH_MAX_SPAWN_CANDIDATES (128 + CH_MAX_FILE_SPAWNS)
+
+// Players closer than this to a spawn point make it "taken" - the stock
+// picker's figure, kept so behaviour on a well-stocked map is unchanged.
+#define CH_SPAWN_CLEAR_RADIUS 128.0f
+
+// A probed position only has to not overlap anyone.
+#define CH_SPAWN_PROBE_CLEAR_RADIUS 48.0f
+
+// How high above the ground a spawned player's origin sits. The stock picker
+// adds the same unit.
+#define CH_SPAWN_LIFT Vector(0, 0, 1)
+
+int CHalfLifeCrowbarHunt::GatherSpawnPoints(CHSpawnPoint* pTable, int maxCount) const
+{
+	static const char* const classnames[] = {"info_player_deathmatch", "info_player_start", "info_player_coop"};
+
+	int count = 0;
+
+	for (const char* pszClassname : classnames)
+	{
+		CBaseEntity* pSpot = nullptr;
+
+		while (count < maxCount && (pSpot = UTIL_FindEntityByClassname(pSpot, pszClassname)) != nullptr)
+		{
+			// The stock picker skips these too: an unplaced point at the world
+			// origin is a map bug, not a place to stand.
+			if (pSpot->pev->origin == g_vecZero)
+				continue;
+
+			pTable[count].origin = pSpot->pev->origin;
+			pTable[count].angles = pSpot->pev->angles;
+			pTable[count].pent = pSpot->edict();
+			count++;
+		}
+	}
+
+	for (int i = 0; i < m_numFileSpawns && count < maxCount; i++)
+		pTable[count++] = m_fileSpawns[i];
+
+	// Fisher-Yates, so the order the map lists them in is not the order
+	// players fill them in.
+	for (int i = count - 1; i > 0; i--)
+	{
+		const int j = RANDOM_LONG(0, i);
+		CHSpawnPoint tmp = pTable[i];
+		pTable[i] = pTable[j];
+		pTable[j] = tmp;
+	}
+
+	return count;
+}
+
+bool CHalfLifeCrowbarHunt::IsSpawnPositionClear(CBasePlayer* pPlayer, const Vector& vecOrigin, float playerRadius)
+{
+	// A standing player's hull is centred on their origin, same as the
+	// engine's human hull, so a zero-length hull trace here answers "would a
+	// player fit". dont_ignore_monsters so other players and solid props
+	// count as obstacles.
+	TraceResult tr;
+	UTIL_TraceHull(vecOrigin, vecOrigin, dont_ignore_monsters, human_hull, pPlayer->edict(), &tr);
+
+	if (0 != tr.fStartSolid || 0 != tr.fAllSolid)
+		return false;
+
+	CBaseEntity* pEnt = nullptr;
+
+	while ((pEnt = UTIL_FindEntityInSphere(pEnt, vecOrigin, playerRadius)) != nullptr)
+	{
+		// Observers are not in anyone's way.
+		if (pEnt->IsPlayer() && pEnt != pPlayer && !static_cast<CBasePlayer*>(pEnt)->IsObserver())
+			return false;
+	}
+
+	return true;
+}
+
+bool CHalfLifeCrowbarHunt::FindSpawnPositionNear(CBasePlayer* pPlayer, const CHSpawnPoint& spot, Vector& vecOut)
+{
+	static const float distances[] = {48.0f, 96.0f, 144.0f};
+	static const int directions = 8;
+
+	// Start the ring somewhere different each time so the overflow does not
+	// always pile up on the same side of a point.
+	const int firstDir = RANDOM_LONG(0, directions - 1);
+
+	for (float distance : distances)
+	{
+		for (int d = 0; d < directions; d++)
+		{
+			const float yaw = (firstDir + d) * (360.0f / directions);
+			Vector vecOffset;
+			vecOffset.x = cos(yaw * (M_PI / 180.0f)) * distance;
+			vecOffset.y = sin(yaw * (M_PI / 180.0f)) * distance;
+			vecOffset.z = 0;
+
+			// Drop a hull onto the floor from a little above the spot's own
+			// height: a step up is fine, but no ground within reach means a
+			// ledge or a pit, and a hull that starts inside something means a
+			// wall.
+			const Vector vecStart = spot.origin + vecOffset + Vector(0, 0, 18);
+			const Vector vecEnd = vecStart - Vector(0, 0, 90);
+
+			TraceResult tr;
+			UTIL_TraceHull(vecStart, vecEnd, dont_ignore_monsters, human_hull, pPlayer->edict(), &tr);
+
+			if (0 != tr.fStartSolid || 0 != tr.fAllSolid || tr.flFraction >= 1.0f)
+				continue;
+
+			const Vector vecCandidate = tr.vecEndPos + CH_SPAWN_LIFT;
+
+			if (!IsSpawnPositionClear(pPlayer, vecCandidate, CH_SPAWN_PROBE_CLEAR_RADIUS))
+				continue;
+
+			// Same room as the spot, not the other side of a thin wall.
+			UTIL_TraceLine(spot.origin + CH_SPAWN_LIFT, vecCandidate, ignore_monsters, pPlayer->edict(), &tr);
+
+			if (tr.flFraction < 1.0f)
+				continue;
+
+			vecOut = vecCandidate;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool CHalfLifeCrowbarHunt::GetSpawnAvoidOrigin(CBasePlayer* pPlayer, Vector& vecOut) const
+{
+	CHRole avoidRole;
+
+	switch (GetPlayerRole(pPlayer))
+	{
+	case CHRole::Killer:
+		avoidRole = CHRole::Hunter;
+		break;
+	case CHRole::Hunter:
+		avoidRole = CHRole::Killer;
+		break;
+	default:
+		return false;
+	}
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		CBasePlayer* pOther = GetPlayerByIndex(i);
+
+		if (pOther && pOther != pPlayer && m_playerRoles[i] == avoidRole && pOther->IsAlive() && !pOther->IsObserver())
+		{
+			vecOut = pOther->pev->origin;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+edict_t* CHalfLifeCrowbarHunt::GetPlayerSpawnSpot(CBasePlayer* pPlayer)
+{
+	CHSpawnPoint candidates[CH_MAX_SPAWN_CANDIDATES];
+	const int numCandidates = GatherSpawnPoints(candidates, CH_MAX_SPAWN_CANDIDATES);
+
+	// Nothing to choose between - let the stock picker report the map's problem.
+	if (numCandidates == 0)
+		return CHalfLifeMultiplay::GetPlayerSpawnSpot(pPlayer);
+
+	Vector vecAvoid;
+	const bool bAvoid = GetSpawnAvoidOrigin(pPlayer, vecAvoid);
+
+	Vector vecOrigin;
+	CHSpawnPoint* pChosen = nullptr;
+
+	// Two sweeps of the list, the first honouring the role separation and the
+	// second not; within each, every spot is tried as-is before any is probed
+	// around, so nobody ends up beside a point while another stands free.
+	for (int pass = 0; pass < 2 && !pChosen; pass++)
+	{
+		const bool bKeepApart = bAvoid && pass == 0;
+
+		for (int probe = 0; probe < 2 && !pChosen; probe++)
+		{
+			for (int i = 0; i < numCandidates; i++)
+			{
+				CHSpawnPoint& spot = candidates[i];
+
+				if (bKeepApart && (spot.origin - vecAvoid).Length() < CH_ROLE_SPAWN_SEPARATION)
+					continue;
+
+				// A point with a master that is not on is not open to anyone.
+				if (spot.pent)
+				{
+					CBaseEntity* pEnt = CBaseEntity::Instance(spot.pent);
+
+					if (pEnt && !pEnt->IsTriggered(pPlayer))
+						continue;
+				}
+
+				if (probe == 0)
+				{
+					if (!IsSpawnPositionClear(pPlayer, spot.origin + CH_SPAWN_LIFT, CH_SPAWN_CLEAR_RADIUS))
+						continue;
+
+					vecOrigin = spot.origin + CH_SPAWN_LIFT;
+				}
+				else if (!FindSpawnPositionNear(pPlayer, spot, vecOrigin))
+				{
+					continue;
+				}
+
+				pChosen = &spot;
+				break;
+			}
+		}
+	}
+
+	// Every point and everything around it is taken. The stock picker will
+	// make room the hard way; at least it is the exception now.
+	if (!pChosen)
+		return CHalfLifeMultiplay::GetPlayerSpawnSpot(pPlayer);
+
+	pPlayer->pev->origin = vecOrigin;
+	pPlayer->pev->v_angle = g_vecZero;
+	pPlayer->pev->velocity = g_vecZero;
+	pPlayer->pev->angles = pChosen->angles;
+	pPlayer->pev->punchangle = g_vecZero;
+	pPlayer->pev->fixangle = 1;
+
+	// What CHalfLifeMultiplay::GetPlayerSpawnSpot() would have done with the
+	// point's target. A file entry has none.
+	if (pChosen->pent && !FStringNull(pChosen->pent->v.target))
+		FireTargets(STRING(pChosen->pent->v.target), pPlayer, pPlayer, USE_TOGGLE, 0);
+
+	// The callers that look at the return only read its angles, which are the
+	// player's own now; the world stands in for a file entry the way it does
+	// for the stock picker's "no spawn at all" case.
+	return pChosen->pent ? pChosen->pent : CWorld::World->edict();
+}
+
+// maps/<map>_spawns.txt: one "x y z [yaw]" per line, "//" comments, for maps
+// whose own points are too few or whose surroundings probe badly.
+void CHalfLifeCrowbarHunt::LoadSpawnFile()
+{
+	m_numFileSpawns = 0;
+
+	char szPath[128];
+	snprintf(szPath, sizeof(szPath), "maps/%s_spawns.txt", STRING(gpGlobals->mapname));
+
+	int fileSize = 0;
+	byte* pFile = LOAD_FILE_FOR_ME(szPath, &fileSize);
+
+	if (!pFile)
+		return;
+
+	int lineNo = 0;
+	int pos = 0;
+
+	while (pos < fileSize)
+	{
+		char szLine[128];
+		int len = 0;
+		lineNo++;
+
+		while (pos < fileSize && pFile[pos] != '\n' && pFile[pos] != '\r' && pFile[pos] != '\0')
+		{
+			if (len < static_cast<int>(sizeof(szLine)) - 1)
+				szLine[len++] = static_cast<char>(pFile[pos]);
+			pos++;
+		}
+
+		// Exactly one terminator per line, so the line numbers in the
+		// messages below stay honest. A stray NUL counts as one, or the loop
+		// above never advances.
+		if (pos < fileSize && pFile[pos] == '\r')
+			pos++;
+		if (pos < fileSize && (pFile[pos] == '\n' || pFile[pos] == '\0'))
+			pos++;
+
+		szLine[len] = '\0';
+
+		const char* pszLine = szLine;
+		while (*pszLine == ' ' || *pszLine == '\t')
+			pszLine++;
+
+		if (*pszLine == '\0' || (pszLine[0] == '/' && pszLine[1] == '/'))
+			continue;
+
+		float x, y, z;
+		float yaw = 0;
+
+		if (sscanf(pszLine, "%f %f %f %f", &x, &y, &z, &yaw) < 3)
+		{
+			ALERT(at_console, "%s(%d): expected \"x y z [yaw]\", skipped\n", szPath, lineNo);
+			continue;
+		}
+
+		if (m_numFileSpawns >= CH_MAX_FILE_SPAWNS)
+		{
+			ALERT(at_console, "%s(%d): over %d spawn points, the rest are ignored\n", szPath, lineNo, CH_MAX_FILE_SPAWNS);
+			break;
+		}
+
+		CHSpawnPoint& spawn = m_fileSpawns[m_numFileSpawns++];
+		spawn.origin = Vector(x, y, z);
+		spawn.angles = Vector(0, yaw, 0);
+		spawn.pent = nullptr;
+	}
+
+	FREE_FILE(pFile);
+
+	ALERT(at_console, "Crowbar Hunt: %d extra spawn points from %s\n", m_numFileSpawns, szPath);
+}
+
 // Belt-and-braces wipe. PlayerSpawn() already strips anyone it respawns, but
 // this does not depend on a player having gone through a spawn at all, so it
 // also catches observers and anyone the respawn loop skipped.
@@ -3544,11 +3889,21 @@ void CHalfLifeCrowbarHunt::StripAllPlayers() const
 // the Spectator role exists: StartObserver() leaves a player reading as not
 // alive, so without the check a voluntary spectator looks exactly like a player
 // who died last round and is owed a respawn.
+//
+// The Killer goes first so that the Hunter, placed later in the sweep, is
+// kept away from where the Killer actually is this round rather than where
+// they stood at the end of the last one - see GetSpawnAvoidOrigin().
 void CHalfLifeCrowbarHunt::ForceRespawnAllPlayers() const
 {
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
-		if (!IsSittingOut(i))
+		if (m_playerRoles[i] == CHRole::Killer && !IsSittingOut(i))
+			ForceRespawn(GetPlayerByIndex(i));
+	}
+
+	for (int i = 1; i <= gpGlobals->maxClients; i++)
+	{
+		if (m_playerRoles[i] != CHRole::Killer && !IsSittingOut(i))
 			ForceRespawn(GetPlayerByIndex(i));
 	}
 }

@@ -1118,8 +1118,43 @@ void EV_Crowbar(event_args_t* args)
 	//swinger: the server only ever sends this event to them (see
 	//CCrowbar::Swing), and the sound is played through EV_PlaySound rather
 	//than the server, so no other client can hear it. The swinger still gets
-	//the whiff as feedback that the swing went off.
-	if (!gHUD.m_CrowbarHunt || EV_IsLocal(idx))
+	//the whiff as feedback that the swing went off - unless the swing is about
+	//to land on a player. The client-side CCrowbar::Swing cannot tell (its
+	//UTIL_TraceLine stub always misses), so repeat the server's trace here
+	//against the predicted player set and stay silent on a body hit.
+	bool bHitPlayer = false;
+	if (gHUD.m_CrowbarHunt && EV_IsLocal(idx))
+	{
+		Vector vecSrc, vecEnd, forward, right, up;
+		pmtrace_t tr;
+
+		EV_GetGunPosition(args, vecSrc, origin);
+		AngleVectors(args->angles, forward, right, up);
+		vecEnd = vecSrc + forward * 32;
+
+		gEngfuncs.pEventAPI->EV_SetUpPlayerPrediction(0, 1);
+		gEngfuncs.pEventAPI->EV_PushPMStates();
+		gEngfuncs.pEventAPI->EV_SetSolidPlayers(idx - 1);
+
+		// Same as the server: a line trace first, then the head hull.
+		gEngfuncs.pEventAPI->EV_SetTraceHull(2);
+		gEngfuncs.pEventAPI->EV_PlayerTrace(vecSrc, vecEnd, PM_NORMAL, -1, &tr);
+		if (tr.fraction >= 1.0)
+		{
+			gEngfuncs.pEventAPI->EV_SetTraceHull(3);
+			gEngfuncs.pEventAPI->EV_PlayerTrace(vecSrc, vecEnd, PM_NORMAL, -1, &tr);
+		}
+
+		if (tr.fraction < 1.0)
+		{
+			physent_t* pe = gEngfuncs.pEventAPI->EV_GetPhysent(tr.ent);
+			bHitPlayer = pe && pe->player != 0;
+		}
+
+		gEngfuncs.pEventAPI->EV_PopPMStates();
+	}
+
+	if ((!gHUD.m_CrowbarHunt || EV_IsLocal(idx)) && !bHitPlayer)
 		gEngfuncs.pEventAPI->EV_PlaySound(idx, origin, CHAN_WEAPON, "weapons/cbar_miss1.wav", 1, ATTN_NORM, 0, PITCH_NORM);
 
 	if (EV_IsLocal(idx))
