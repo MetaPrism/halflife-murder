@@ -547,7 +547,14 @@ private:
 	// up, or 0 when there is nothing pending; the text is whatever EndRound()
 	// was given. See AnnounceRoundOver().
 	float m_flRoundOverAnnounceTime;
-	char  m_szRoundOverMessage[192]; // result line plus the Killer reveal, two names wide
+	char  m_szRoundOverMessage[128];
+
+	// The Killer reveal sent alongside it: their real name, and the anonymous
+	// name and colour they wore this round (empty / -1 when they wore none).
+	// Empty real name means no reveal - the Killer had already left.
+	char  m_szRevealRealName[CH_MAX_ANON_NAME];
+	char  m_szRevealAnonName[CH_MAX_ANON_NAME];
+	int   m_iRevealAnonColor;
 
 	// gpGlobals->time the live round is called for the Survivors, from
 	// ch_round_time. 0 while no clock is running - outside InProgress, or when

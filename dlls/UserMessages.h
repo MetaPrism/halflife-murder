@@ -101,6 +101,9 @@ inline int gmsgCHAdmin = 0;
 // name the body was wearing when it died. An empty name takes the label down.
 inline int gmsgCHLook = 0;
 
+// Round-over Killer reveal: anon colour, real name, anon name, hold seconds.
+inline int gmsgCHReveal = 0;
+
 // Crowbar Hunt footsteps, sent to the Killer only: a kind byte - 0 wipes every
 // print the client holds, 1 is a left foot, 2 a right - then for a print its
 // position (coords), yaw (angle byte), colour (three bytes) and how many

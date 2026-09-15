@@ -466,6 +466,24 @@ private:
 	int m_iAnonColor;                      // g_CHAnonColors index, or -1 for the HUD colour
 };
 
+// Crowbar Hunt round-over Killer reveal, under the round result. See
+// ch_reveal.cpp.
+class CHudCHReveal : public CHudBase
+{
+public:
+	bool Init() override;
+	bool VidInit() override;
+	void InitHUDData() override;
+	bool Draw(float flTime) override;
+	bool MsgFunc_CHReveal(const char* pszName, int iSize, void* pbuf);
+
+private:
+	char m_szRealName[MAX_PLAYER_NAME_LENGTH]; // empty draws nothing
+	char m_szAnonName[MAX_PLAYER_NAME_LENGTH]; // empty: no parenthetical
+	int m_iAnonColor;                          // g_CHAnonColors index for the anon name, or -1
+	float m_flEndTime;                         // gHUD.m_flTime the reveal is gone
+};
+
 // Crowbar Hunt voice falloff by distance. Draws nothing. See ch_proxvoice.cpp.
 class CHudCHProxVoice : public CHudBase
 {
@@ -718,6 +736,7 @@ public:
 	CHudCHLoot m_CHLoot;
 	CHudCHRole m_CHRole;
 	CHudCHLook m_CHLook;
+	CHudCHReveal m_CHReveal;
 	CHudCHProxVoice m_CHProxVoice;
 	CHudCHFootsteps m_CHFootsteps;
 

@@ -75,6 +75,7 @@ target_sources(client PRIVATE
 	ch_loot.cpp
 	ch_role.cpp
 	ch_look.cpp
+	ch_reveal.cpp
 	ch_proxvoice.cpp
 	ch_footsteps.cpp
 	death.cpp

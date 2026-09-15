@@ -75,6 +75,7 @@ void LinkUserMessages()
 	gmsgCHProxVoice = REG_USER_MSG("CHProxVoice", 3); // fade voices by distance: on/off, radius
 	gmsgCHAdmin = REG_USER_MSG("CHAdmin", -1);   // one Killer-odds table row, or the terminator
 	gmsgCHLook = REG_USER_MSG("CHLook", -1);     // corpse under the crosshair: name colour, name
+	gmsgCHReveal = REG_USER_MSG("CHReveal", -1); // round over: the Killer's real and anonymous names
 	gmsgCHFootstep = REG_USER_MSG("CHFootstep", -1); // one footprint for the Killer, or a wipe
 
 }

@@ -506,6 +506,9 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 
 	m_flRoundOverAnnounceTime = 0.0f;
 	m_szRoundOverMessage[0]   = '\0';
+	m_szRevealRealName[0]     = '\0';
+	m_szRevealAnonName[0]     = '\0';
+	m_iRevealAnonColor        = -1;
 	PRECACHE_SOUND(CH_ROUND_OVER_SOUND);
 
 	m_flKillerFogTime       = 0.0f;
@@ -609,7 +612,7 @@ void CHalfLifeCrowbarHunt::Think()
 		if (m_roundState == CHRoundState::InProgress &&
 			m_flRoundTimeLimit != 0.0f && gpGlobals->time >= m_flRoundTimeLimit)
 		{
-			EndRound(CHRole::Survivor, "Time's up! The Survivors win the round!\n");
+			EndRound(CHRole::Survivor, "Time's up! The Survivors win the round!");
 		}
 		break;
 
@@ -752,28 +755,26 @@ void CHalfLifeCrowbarHunt::EndRound(CHRole winningRole, const char* pszMessage)
 	strncpy(m_szRoundOverMessage, pszMessage ? pszMessage : msg, sizeof(m_szRoundOverMessage) - 1);
 	m_szRoundOverMessage[sizeof(m_szRoundOverMessage) - 1] = '\0';
 
-	// The reveal: who the Killer really was, with the name they wore this
-	// round alongside it when anonymous mode had them under another one. A
-	// Killer who quit mid-round has had their slot wiped by then, so there
-	// is nobody to name; the result stands on its own.
+	// The reveal that goes under it: who the Killer really was, and the name
+	// they wore this round when anonymous mode had them under another one.
+	// Taken now, while the Killer is still in their slot - a Killer who quits
+	// mid-round has it wiped, and then there is nobody to name.
+	m_szRevealRealName[0] = '\0';
+	m_szRevealAnonName[0] = '\0';
+	m_iRevealAnonColor    = -1;
+
 	if (CBasePlayer* pKiller = GetKiller(); pKiller != nullptr)
 	{
-		const int   index    = ENTINDEX(pKiller->edict());
-		const char* realName = GetRealName(index);
-		const char* anonName = m_bAnonActive ? m_szAnonName[index] : "";
+		const int index = ENTINDEX(pKiller->edict());
 
-		if (realName[0] != '\0')
+		strncpy(m_szRevealRealName, GetRealName(index), sizeof(m_szRevealRealName) - 1);
+		m_szRevealRealName[sizeof(m_szRevealRealName) - 1] = '\0';
+
+		if (m_bAnonActive && m_anonColor[index] >= 0 && strcmp(m_szAnonName[index], m_szRevealRealName) != 0)
 		{
-			size_t len = strlen(m_szRoundOverMessage);
-			while (len > 0 && m_szRoundOverMessage[len - 1] == '\n')
-				m_szRoundOverMessage[--len] = '\0';
-
-			const size_t room = sizeof(m_szRoundOverMessage) - len;
-
-			if (anonName[0] != '\0' && strcmp(anonName, realName) != 0)
-				snprintf(m_szRoundOverMessage + len, room, "\nThe Killer was %s (%s).", realName, anonName);
-			else
-				snprintf(m_szRoundOverMessage + len, room, "\nThe Killer was %s.", realName);
+			strncpy(m_szRevealAnonName, m_szAnonName[index], sizeof(m_szRevealAnonName) - 1);
+			m_szRevealAnonName[sizeof(m_szRevealAnonName) - 1] = '\0';
+			m_iRevealAnonColor = m_anonColor[index];
 		}
 	}
 
@@ -815,6 +816,19 @@ void CHalfLifeCrowbarHunt::AnnounceRoundOver()
 	parms.channel = 3;
 
 	UTIL_HudMessageAll(parms, m_szRoundOverMessage);
+
+	// The Killer reveal, drawn by the client under that message (ch_reveal.cpp)
+	// because a HUD message is one colour throughout and the anonymous name
+	// wants its own. Same hold as the result, so the two leave together.
+	if (m_szRevealRealName[0] != '\0')
+	{
+		MESSAGE_BEGIN(MSG_ALL, gmsgCHReveal, nullptr);
+		WRITE_BYTE(m_iRevealAnonColor >= 0 ? m_iRevealAnonColor : CH_ANON_NONE);
+		WRITE_STRING(m_szRevealRealName);
+		WRITE_STRING(m_szRevealAnonName);
+		WRITE_BYTE(V_min(255, static_cast<int>(ceilf(parms.holdTime + parms.fadeoutTime))));
+		MESSAGE_END();
+	}
 
 	// Full volume for everyone, wherever they are. Not EMIT_SOUND per player:
 	// an ATTN_NONE emit reaches every client, so emitting once from each
