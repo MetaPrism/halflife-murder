@@ -441,6 +441,10 @@ private:
 	// we see would just read our own disguise back.
 	void StashRealIdentity(CBasePlayer* pPlayer, const char* pszInfoBuffer);
 
+	// Locked model: stamp "helmet" over one player's model key while
+	// ch_lockmodel is on, or put their own model back once it is off.
+	void ApplyModelLock(CBasePlayer* pPlayer);
+
 	// Tell clients which colour to draw each player's name in. A null pTo
 	// broadcasts to everyone.
 	void SendAnonColors(CBasePlayer* pTo) const;
@@ -654,6 +658,12 @@ private:
 	char m_szRealName[MAX_PLAYERS + 1][CH_MAX_ANON_NAME];
 	int  m_realTopColor[MAX_PLAYERS + 1];
 	int  m_realBottomColor[MAX_PLAYERS + 1];
+
+	// Locked-model state. m_szRealModel is the last model a player asked for
+	// themselves, kept so ch_lockmodel 0 can give it back; m_bModelLockActive
+	// is the cvar as last applied, so Think() can catch it flipping mid-map.
+	char m_szRealModel[MAX_PLAYERS + 1][CH_MAX_ANON_NAME];
+	bool m_bModelLockActive;
 
 	// Disguise state, indexed like m_playerRoles and cleared with it. Only the
 	// Killer ever wears one, but it is kept per slot so the identity code does

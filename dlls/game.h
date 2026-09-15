@@ -111,6 +111,11 @@ extern cvar_t ch_loot_killer_gun;
 // alone. 0 leaves everyone under their own name.
 extern cvar_t ch_anonymous;
 
+// Locked model: 1 puts every player in the "helmet" model for as long as it is
+// on, whatever they picked and whether or not ch_anonymous is on. 0 leaves
+// model choice alone.
+extern cvar_t ch_lockmodel;
+
 // Disguise: 1 lets the Killer +use a corpse to take the dead player's name and
 // colours (not their model) until their next kill or the round ends. Priced in
 // loot by ch_disguise_cost; 0 there makes it free.

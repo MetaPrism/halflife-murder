@@ -93,6 +93,10 @@ constexpr const char* CH_ANON_NAME_FILE = "ch_anonnames.txt";
 
 constexpr int CH_MAX_ANON_NAMES = 64;
 
+// What everyone wears under ch_lockmodel 1. A userinfo "model" value, so a
+// folder name under models/player/, not a path.
+constexpr const char* CH_LOCKED_MODEL = "helmet";
+
 namespace
 {
 // Used when the names file is missing or has nothing usable in it. Deliberately
@@ -513,6 +517,7 @@ CHalfLifeCrowbarHunt::CHalfLifeCrowbarHunt()
 	PRECACHE_MODEL(CH_KILLER_FOG_SPRITE);
 
 	m_bAnonActive = false;
+	m_bModelLockActive = false;
 
 	for (int i = 0; i <= MAX_PLAYERS; i++)
 		ResetPlayerSlot(i);
@@ -534,6 +539,18 @@ void CHalfLifeCrowbarHunt::Think()
 	CHalfLifeMultiplay::Think();
 
 	EnforceSpeedCeiling();
+
+	// ch_lockmodel can go on or off mid-map; restamp everyone the frame it does.
+	if ((ch_lockmodel.value != 0) != m_bModelLockActive)
+	{
+		m_bModelLockActive = ch_lockmodel.value != 0;
+
+		for (int i = 1; i <= gpGlobals->maxClients; i++)
+		{
+			if (CBasePlayer* pPlayer = GetPlayerByIndex(i))
+				ApplyModelLock(pPlayer);
+		}
+	}
 
 	// First frame after the map finished spawning its entities: record what
 	// everything looked like before anyone can break or open it, and clear the
@@ -1698,12 +1715,50 @@ void CHalfLifeCrowbarHunt::RestoreRealIdentity(int index)
 	}
 }
 
+// The model key is the one piece of appearance anonymous mode leaves alone;
+// ch_lockmodel takes it too, for servers that want one silhouette for all.
+// Same userinfo restamp as the colours, so the studio renderer, corpses and
+// the scoreboard all pick it up without being told.
+void CHalfLifeCrowbarHunt::ApplyModelLock(CBasePlayer* pPlayer)
+{
+	const int index = ENTINDEX(pPlayer->edict());
+
+	if (index < 1 || index > MAX_PLAYERS)
+		return;
+
+	char*       infobuffer = g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict());
+	const char* pszModel = g_engfuncs.pfnInfoKeyValue(infobuffer, "model");
+
+	// Anything that is not our stamp is the player's own choice, so keep the
+	// newest one: a client can change model while locked and should get that
+	// change, not their join-time model, when the lock comes off.
+	if (pszModel[0] != '\0' && stricmp(pszModel, CH_LOCKED_MODEL) != 0)
+	{
+		strncpy(m_szRealModel[index], pszModel, CH_MAX_ANON_NAME - 1);
+		m_szRealModel[index][CH_MAX_ANON_NAME - 1] = '\0';
+	}
+
+	if (ch_lockmodel.value != 0)
+	{
+		if (stricmp(pszModel, CH_LOCKED_MODEL) != 0)
+			g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "model", CH_LOCKED_MODEL);
+	}
+	else if (m_szRealModel[index][0] != '\0' && stricmp(pszModel, m_szRealModel[index]) != 0)
+	{
+		g_engfuncs.pfnSetClientKeyValue(index, infobuffer, "model", m_szRealModel[index]);
+	}
+}
+
 void CHalfLifeCrowbarHunt::ApplyIdentity(CBasePlayer* pPlayer)
 {
 	const int index = ENTINDEX(pPlayer->edict());
 
 	if (index < 1 || index > MAX_PLAYERS)
 		return;
+
+	// Independent of anonymous mode and of disguises: the model is locked or
+	// it is not, whatever name and colours are being worn over it.
+	ApplyModelLock(pPlayer);
 
 	if (!m_bDisguised[index])
 	{
@@ -1937,6 +1992,7 @@ void CHalfLifeCrowbarHunt::ResetPlayerSlot(int index)
 	m_szRealName[index][0] = '\0';
 	m_realTopColor[index] = -1;
 	m_realBottomColor[index] = -1;
+	m_szRealModel[index][0] = '\0';
 
 	m_bDisguised[index] = false;
 	m_szDisguiseName[index][0] = '\0';
