@@ -12,7 +12,8 @@
 // Drawn on the line directly below the result, in the same font, centred the
 // same way, typed out at the same rate as the result's effect-2 typewriter
 // (both start together, so the two lines fill in side by side), held for the
-// same time, and faded out over the same second, so the two leave together.
+// same time, and faded out over the same second. Both also go the moment the
+// next round's respawn resets the HUD, so the two leave together either way.
 //
 
 #include "hud.h"
@@ -83,11 +84,19 @@ bool CHudCHReveal::VidInit()
 	return true;
 }
 
-// A new server connection: the last one's reveal is stale. Not Reset() - that
-// fires on every respawn, and the round-end respawn lands while this is up.
+// A new server connection: the last one's reveal is stale.
 void CHudCHReveal::InitHUDData()
 {
 	m_szRealName[0] = '\0';
+	m_flEndTime = 0.0f;
+}
+
+// Every respawn. The result above this line is a HUD message, and
+// CHudMessage::Reset() drops it the moment the between-round respawn's
+// ResetHUD arrives - before its hold runs out. Going down with it keeps the
+// two lines leaving together.
+void CHudCHReveal::Reset()
+{
 	m_flEndTime = 0.0f;
 }
 

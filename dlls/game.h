@@ -116,6 +116,11 @@ extern cvar_t ch_anonymous;
 // model choice alone.
 extern cvar_t ch_lockmodel;
 
+// Bare hands: how much damage a punch from weapon_hands does to a
+// func_breakable, so anyone can get through a window instead of only the two
+// armed players. Punches hurt nothing else. 0 turns punching off.
+extern cvar_t ch_handsbreak;
+
 // Disguise: 1 lets the Killer +use a corpse to take the dead player's name and
 // colours (not their model) until their next kill or the round ends. Priced in
 // loot by ch_disguise_cost; 0 there makes it free.

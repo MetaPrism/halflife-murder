@@ -474,6 +474,7 @@ public:
 	bool Init() override;
 	bool VidInit() override;
 	void InitHUDData() override;
+	void Reset() override;
 	bool Draw(float flTime) override;
 	bool MsgFunc_CHReveal(const char* pszName, int iSize, void* pbuf);
 
