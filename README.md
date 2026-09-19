@@ -10,7 +10,7 @@ This project was created with help from Claude AI. All sprites and icons include
 
 MetaPrism
 Snoozdle
-Red
+[Barret](https://github.com/barretg)
 Feed_Me_Cheesecake
 
 # Half-Life SDK README.md
