@@ -1,8 +1,19 @@
-# AI DISCLAIMER:
+# About this fork
+
+This project is heavily inspired by GMod Murder by Mechanical Mind. A round-based game where one person is the killer, who must kill all other players in the game with just a crowbar. Among the rest of the players, one is given the means to fight back; they can outsmart the killer, but only if they can work together.
+
+# AI DISCLAIMER
 
 This project was created with help from Claude AI. All sprites and icons included in this project were created by people.
 
-# About
+# Credits
+
+MetaPrism
+Snoozdle
+Red
+Feed_Me_Cheesecake
+
+# Half-Life SDK README.md
 
 [Half-Life Updated](https://github.com/twhl-community/halflife-updated), [Opposing Force Updated](https://github.com/twhl-community/halflife-op4-updated) and [Blue Shift Updated](https://github.com/twhl-community/halflife-bs-updated) are repositories that provide updated versions of the Half-Life SDK, targeted to the 3 Half-Life 1 PC games officially available.
 
